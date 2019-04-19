@@ -35,6 +35,25 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - bind-torrent
+    - bytestring
+    - cryptohash-sha1
+    - bencode
+    - containers
+    - base16-bytestring    
+    - lens
+    - text
+    - http-types
+    - http-client
+    - http-conduit
+    - random-strings
+    - iproute
+    - binary
+    - torrent
+    - either
+    - network
+    - network-simple
+    - lens
+    - gtk
 
 tests:
   bind-torrent-test:
