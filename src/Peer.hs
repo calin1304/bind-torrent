@@ -1,10 +1,6 @@
-module Peer
-    ( Peer(..)
-    , PeerId
-    , ActivePeer
-    , mkPeer
-    , mkActivePeer
-    ) where
+{-# LANGUAGE TemplateHaskell #-}
+
+module Peer where
 
 {-
     Client maintains state of each connection with remote peer
@@ -42,26 +38,31 @@ Message flow
 import           Data.IP               (IPv4)
 
 import qualified Data.ByteString.Char8 as C
+import Network.Socket(Socket)
+import Control.Lens
 
 type PeerId = C.ByteString
 
-data Peer = Peer
-    { maybeActive :: Maybe ActivePeer
-    , ip          :: IPv4
-    , port        :: Int
-    } deriving(Show)
-
 data ActivePeer = ActivePeer
-    { peerId       :: PeerId
-    , isInterested :: Bool
-    , isChoking    :: Bool
-    , amInterested :: Bool
-    , amChoking    :: Bool
+    { _peerId       :: PeerId
+    , _isInterested :: Bool
+    , _isChoking    :: Bool
+    , _amInterested :: Bool
+    , _amChoking    :: Bool
+    , _socket       :: Socket
     } deriving(Show)
+makeLenses ''ActivePeer
+
+data Peer = Peer
+    { _maybeActive :: Maybe ActivePeer
+    , _ip          :: IPv4
+    , _port        :: Int
+    } deriving(Show)
+makeLenses ''Peer
 
 mkPeer :: IPv4 -> Int -> Peer
 mkPeer = Peer Nothing
 
 mkActivePeer :: Peer -> PeerId -> Peer
-mkActivePeer peer peerId =
-    peer {maybeActive = Just $ ActivePeer peerId False True False True}
+mkActivePeer peer peerId = undefined
+    -- peer {maybeActive = Just $ ActivePeer peerId False True False True}

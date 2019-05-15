@@ -24,17 +24,7 @@ dependencies:
 
 library:
   source-dirs: src
-
-executables:
-  bind-torrent-exe:
-    main:                Main.hs
-    source-dirs:         app
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    dependencies:
-    - bind-torrent
+  dependencies:
     - bytestring
     - cryptohash-sha1
     - bencode
@@ -53,7 +43,21 @@ executables:
     - network
     - network-simple
     - lens
-    - gtk
+    - mtl
+    - http-conduit
+    - conduit
+
+executables:
+  bind-torrent-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - bind-torrent
+    - bytestring
 
 tests:
   bind-torrent-test:
