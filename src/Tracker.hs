@@ -45,26 +45,22 @@ mkTrackerRequest an ih pi port = TrackerRequest
                                , _left = 0
                                }
 
-mkRequestOptions :: TrackerRequest -> [(BS.ByteString, Maybe BS.ByteString)]
-mkRequestOptions r = [ ("info_hash",  Just $         r ^. infoHash)
-                     , ("peer_id",    Just $         r ^. peerId )
-                     , ("port",       Just $ itobs $ r ^. listenPort)
-                     , ("uploaded",   Just $ itobs $ r ^. uploaded)
-                     , ("downloaded", Just $ itobs $ r ^. downloaded)
-                     , ("left",       Just $ itobs $ r ^. left)
-                     , ("compact",    Just "1")
-                     ]
-    where itobs = C.pack . show
-
 sendRequest :: TrackerRequest -> IO (Either LBS.ByteString TrackerResponse)
 sendRequest r = do
-    let options = mkRequestOptions r
-    request' <- parseRequest $ C.unpack $ r ^. announce
-    let request = setRequestMethod "GET"
-                $ setRequestQueryString options
-                    request'
-    responseBody <- getResponseBody <$> httpLBS request
-    return $ parseTrackerResponse responseBody
+    request <- setRequestQueryString query <$> (parseRequest $ C.unpack $ r ^. announce)
+    parseTrackerResponse . getResponseBody <$> httpLBS request
+    where
+        query :: [(BS.ByteString, Maybe BS.ByteString)]
+        query = let itobs = C.pack . show
+                in map (\(x, y) -> (x, Just y)) 
+                       [ ("info_hash",          r ^. infoHash)
+                       , ("peer_id",            r ^. peerId )
+                       , ("port",       itobs $ r ^. listenPort)
+                       , ("uploaded",   itobs $ r ^. uploaded)
+                       , ("downloaded", itobs $ r ^. downloaded)
+                       , ("left",       itobs $ r ^. left)
+                       , ("compact",    "1")
+                       ]
 
 parseTrackerResponse :: LBS.ByteString -> Either LBS.ByteString TrackerResponse
 parseTrackerResponse bs =
