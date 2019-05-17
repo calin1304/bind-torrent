@@ -10,7 +10,6 @@ import qualified Data.ByteString       as BS
 import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString.Lazy  as LBS
 import           Data.IP               (fromHostAddress)
-import           Data.Maybe            (fromJust)
 import           Network.HTTP.Simple
 import           Numeric               (showInt)
 
@@ -74,11 +73,10 @@ parseTrackerResponse bs =
         Just (BString s) -> Left s
     where
         failureReason = lookupBDict "failure_reason" bdict :: Maybe BEncode
-        wait_interval = let BInt x = fromJust $ lookupBDict "interval" bdict 
+        wait_interval = let Just (BInt x) = lookupBDict "interval" bdict in x
+        peerList      = let Just x = parseCompactPeerList <$> lookupBDict "peers" bdict
                         in x
-        peerList      = fromJust $ parseCompactPeerList
-                        <$> lookupBDict "peers" bdict
-        bdict         = fromJust $ bRead bs :: BEncode
+        bdict         = let Just x = bRead bs in x
 
 -- The first 4 bytes contain the 32-bit ipv4 address.
 -- The remaining two bytes contain the port number.
