@@ -6,62 +6,72 @@ module Session where
 import           Control.Lens
 import           Control.Monad          (forM_)
 import           Control.Monad.IO.Class (liftIO)
--- import           Control.Monad.State.Lazy (StateT, evalStateT, get)
-import           Control.Monad.Reader   (ReaderT, ask, runReaderT)
+import Control.Monad.Logger
+import           Control.Monad.Reader   (ReaderT, ask, asks, runReaderT)
 import           Crypto.Hash.SHA1       (hashlazy)
 import           Data.BEncode
-import           Data.ByteString        as BS
-import           Data.ByteString.Lazy   as LBS
+import qualified Data.ByteString        as BS
+import qualified Data.ByteString.Lazy   as LBS
 import           Data.Maybe             (fromJust)
 import           Data.Torrent
+import           Network.Socket         (PortNumber)
+import qualified Data.Text as Text
 
-import           BEncoding              (lookupBDict)
 import           Peer                   (Peer, PeerId)
-import qualified Tracker
 import           Types                  (Announce, InfoHash)
 
-type Session = ReaderT SessionState IO
-data SessionState = SessionState
-                  { _peerId     :: PeerId
-                  , _listenPort :: Int
-                  , _infoHash   :: InfoHash
-                  }
-makeLenses ''SessionState
+import qualified BEncoding              as BEncoding
+import qualified PiecesManager          as PiecesManager
+import qualified Tracker as Tracker
+import qualified Protocol as Protocol 
+import qualified Peer as Peer
 
-runSessionFromFile :: String -> IO ()
-{- TODO:
-    - Initialize from config file
-    - Read and parse file
-    - Ask tracker for peers
-    - Connect to peers and start download
--}
-runSessionFromFile filename = do
-    Just torrent <- bRead <$> LBS.readFile filename
-    peerId <- randomPeerId -- TODO: Get from config file
-    let sessionState = SessionState
-                     { _peerId = peerId
-                     , _listenPort = 6881 -- TODO: Try another one if port is busy
-                     , _infoHash = bencodeHash $ fromJust
-                                 $ lookupBDict "info" torrent
-                     }
-    let announce = LBS.toStrict $ (\(BString s) -> s) $ fromJust
-                 $ lookupBDict "announce" torrent
-    peers <- runReaderT (getPeers announce) sessionState
-    forM_ peers print
+type SessionM a = ReaderT Config (LoggingT IO) a
 
-    where
-        bencodeHash :: BEncode -> InfoHash
-        bencodeHash = hashlazy . bPack
+run :: SessionM a -> Config -> IO a
+run r s = runStdoutLoggingT $ runReaderT r s
 
-        randomPeerId :: IO PeerId
-        randomPeerId = return $ "01234567890123456789"
+data Config = Config
+              { infoHash          :: InfoHash
+              , announce          :: Announce
+              , peerId :: PeerId
+              , listenPort :: PortNumber
+              }
 
-getPeers :: Announce -> Session [Peer]
-getPeers announce = do
-    s <- ask
+newConfigFromMeta :: LBS.ByteString -> IO Config
+newConfigFromMeta meta = Config ih announce <$> randomPeerId <*> pure listenPort
+    where Just torrent = bRead meta 
+          ih = bencodeHash $ fromJust $ BEncoding.lookupBDict "info" torrent 
+          announce = LBS.toStrict $ (\(BString s) -> s) $ fromJust 
+                        $ BEncoding.lookupBDict "announce" torrent
+
+          bencodeHash :: BEncode -> InfoHash
+          bencodeHash = hashlazy . bPack
+
+          randomPeerId :: IO PeerId
+          randomPeerId = return "01234567890123456789" -- FIXME
+
+          listenPort :: PortNumber
+          listenPort = 6881
+          
+new :: SessionM ()
+new = do
+    config <- ask 
+    peers <- getPeers
+    let peers' = filter (\p -> Peer._port p /= listenPort config) peers
+    $(logDebugSH) peers'
+    let ih = infoHash config
+    let pi = peerId config
+    liftIO $ Protocol.run (Protocol.new (head peers')) (Protocol.newConfig ih pi)
+
+
+getPeers :: SessionM [Peer]
+getPeers = do
+    config <- ask
+    $(logDebug) (Text.concat ["Requesting peers from ", Text.pack (show (announce config))])
     Right response <- liftIO $ Tracker.sendRequest
-                   $ Tracker.mkTrackerRequest announce
-                                              (s ^. infoHash)
-                                              (s ^. peerId)
-                                              (s ^. listenPort)
+                       $ Tracker.mkTrackerRequest (announce config)
+                                                  (infoHash config)
+                                                  (peerId config)
+                                                  (listenPort config)
     return $ response ^. Tracker.peers

@@ -2,10 +2,13 @@
 
 module Internal.Handshake where
 
-import           Data.Binary     (Binary, get, getWord8, put, putWord8)
 import qualified Data.ByteString as BS
-import           Data.Word       (Word8)
+import qualified Data.ByteString.Lazy as LBS
+import Data.Word       (Word8)
 import Control.Lens
+import Data.Binary
+import Data.Binary.Get
+import Data.Binary.Put
 
 import           Peer            (PeerId)
 import           Types           (InfoHash)
@@ -16,33 +19,22 @@ data Handshake = Handshake
     , _reserved :: BS.ByteString
     , _infoHash :: InfoHash
     , _peerId   :: PeerId
-    } deriving(Show)
+    } deriving(Show, Eq)
 makeLenses ''Handshake
 
 instance Binary Handshake where
     put (Handshake pstrlen pstr reserved infoHash peerId) = do
         putWord8 pstrlen
-        put pstr
-        put reserved
-        put infoHash
-        put peerId
+        putByteString pstr
+        putByteString reserved
+        putByteString infoHash
+        putByteString peerId
 
-    get = do
-        pstrlen <- getWord8
-        pstr <- get
-        reserved <- get
-        infoHash <- get
-        Handshake pstrlen pstr reserved infoHash <$> get
+    get = Handshake <$> getWord8 
+                    <*> getByteString 19 
+                    <*> getByteString 8
+                    <*> getByteString 20
+                    <*> getByteString 20
 
-mkHandshake :: InfoHash -> PeerId -> Handshake
-mkHandshake = Handshake pstrlen pstr reserved
-    where
-        pstrlen  = 19 :: Word8
-        pstr     = "BitTorrent protocol"
-        reserved = BS.replicate 8 0
-
-isValidHandshake :: Handshake -> InfoHash -> Bool
-isValidHandshake h expectedInfoHash = isValidPstr && isValidInfoHash
-    where isValidPstr     = h ^. pstrlen == 19 && 
-                            h ^. pstr == "BitTorrent protocol" 
-          isValidInfoHash = h ^. infoHash == expectedInfoHash
+new :: InfoHash -> PeerId -> Handshake
+new = Handshake 19 "BitTorrent protocol" (BS.replicate 8 0)

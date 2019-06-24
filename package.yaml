@@ -21,11 +21,13 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 dependencies:
 - base >= 4.7 && < 5
+- binary
+- bytestring
+- ip
 
 library:
   source-dirs: src
   dependencies:
-    - bytestring
     - cryptohash-sha1
     - bencode
     - containers
@@ -34,10 +36,8 @@ library:
     - text
     - http-types
     - http-client
-    - http-conduit
     - random-strings
     - iproute
-    - binary
     - torrent
     - either
     - network
@@ -45,7 +45,10 @@ library:
     - lens
     - mtl
     - http-conduit
-    - conduit
+    - connection
+    - monad-logger
+    - attoparsec
+    - conduit-extra
 
 executables:
   bind-torrent-exe:
@@ -57,7 +60,6 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - bind-torrent
-    - bytestring
 
 tests:
   bind-torrent-test:
@@ -69,3 +71,5 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - bind-torrent
+    - hspec
+    - QuickCheck

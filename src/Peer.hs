@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Peer where
@@ -35,11 +36,13 @@ Message flow
 
 -}
 
-import           Data.IP               (IPv4)
-
+import           Control.Lens
 import qualified Data.ByteString.Char8 as C
-import Network.Socket(Socket)
-import Control.Lens
+import           Net.IPv4              (IPv4)
+import           Network.Connection    (Connection)
+import           Network.Socket        (PortNumber, Socket)
+
+import           Internal.Instances
 
 type PeerId = C.ByteString
 
@@ -49,20 +52,31 @@ data ActivePeer = ActivePeer
     , _isChoking    :: Bool
     , _amInterested :: Bool
     , _amChoking    :: Bool
-    , _socket       :: Socket
+    , _socket   :: Socket
     } deriving(Show)
 makeLenses ''ActivePeer
+
+instance Eq ActivePeer where
+    (==) a b = all (\x -> x a == x b) [_isInterested, _isChoking, _amInterested, _amChoking] 
+                && _peerId a == _peerId b
 
 data Peer = Peer
     { _maybeActive :: Maybe ActivePeer
     , _ip          :: IPv4
-    , _port        :: Int
-    } deriving(Show)
+    , _port        :: PortNumber
+    } deriving(Show, Eq)
 makeLenses ''Peer
 
-mkPeer :: IPv4 -> Int -> Peer
-mkPeer = Peer Nothing
+new :: IPv4 -> PortNumber -> Peer
+new = Peer Nothing
 
-mkActivePeer :: Peer -> PeerId -> Peer
-mkActivePeer peer peerId = undefined
-    -- peer {maybeActive = Just $ ActivePeer peerId False True False True}
+newActivePeer :: Socket -> ActivePeer
+newActivePeer = ActivePeer "" False True False True
+
+setAmChoking :: Peer -> Bool -> Peer
+setAmChoking peer b = let Just ap = peer ^. Peer.maybeActive
+                        in peer { Peer._maybeActive = Just (ap { Peer._amChoking = b }) }
+                        -- TODO: Rewrite with lens setter
+
+setAmInterested :: Peer -> Bool -> Peer
+setAmInterested = undefined
