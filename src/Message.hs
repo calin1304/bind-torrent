@@ -1,4 +1,4 @@
-module Internal.Message where
+module Message where
 
 import           Data.Binary                (Binary, Get, Put, get, put)
 import           Data.Binary.Get            (getByteString, getWord16be,

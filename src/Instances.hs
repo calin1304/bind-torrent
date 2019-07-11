@@ -1,4 +1,4 @@
-module Internal.Instances where
+module Instances where
 
 import           Network.Connection (Connection, connectionID)
 

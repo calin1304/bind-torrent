@@ -45,16 +45,14 @@ import           Data.Conduit.Attoparsec      (conduitParser, sinkParser)
 import           Data.Conduit.Network         (sourceSocket)
 
 -- Library imports
-import qualified Internal.Handshake           as Handshake
-import qualified Internal.Message             as Message
-import qualified Peer
+import qualified Handshake
+import qualified Message
 import qualified Types
 
-import           Internal.Handshake           (Handshake)
-import           Internal.Message             (Message)
+import           Handshake                    (Handshake)
 import           InternalMessage
-import           Peer                         (Peer, PeerId)
-import           Types                        (InfoHash)
+import           Message                      (Message)
+import           Types                        (InfoHash, PeerId)
 
 type PeerM = ReaderT PeerEnv (LoggingT IO)
 type PiecesMgrChan = (TChan PeerToPiecesMgr, TChan PiecesMgrToPeer)
@@ -120,13 +118,13 @@ start' = do
             outbound   <- asyncIO outboundLoop
             void $ liftIO $ waitAnyCancel [keepAlive, checkAlive, inbound, outbound ]
 
-mkPeerConnection :: (MonadIO m) => Peer -> m Peer
-mkPeerConnection peer = do
-    let peerAddr = IPv4.encodeString (Peer._ip peer)
-        peerPort = show $ Peer._port peer
-    socket <- liftIO $ fst <$> TCP.connectSock peerAddr peerPort
-    let ap = Just $ Peer.newActivePeer socket
-    return $ peer { Peer._maybeActive = ap }
+-- mkPeerConnection :: (MonadIO m) => SockAddr -> m Peer
+-- mkPeerConnection peer = do
+--     let peerAddr = IPv4.encodeString (Peer._ip peer)
+--         peerPort = show $ Peer._port peer
+--     socket <- liftIO $ fst <$> TCP.connectSock peerAddr peerPort
+--     let ap = Just $ Peer.newActivePeer socket
+--     return $ peer { Peer._maybeActive = ap }
 
 sendHandshake :: (MonadReader PeerEnv m, MonadIO m) => m ()
 sendHandshake = do
@@ -306,12 +304,6 @@ isValidHandshake ih h = h ^. Handshake.infoHash == ih -- TODO: Check peer id
 sendMessage :: (MonadReader PeerEnv m, MonadIO m) => Message -> m ()
 sendMessage msg = asks socket >>= send'
     where send' sock = liftIO $ sendAll sock $ LBS.toStrict $ encode msg
-
-withPeerSocket :: (MonadIO m) => Peer -> (TCP.Socket -> m a) -> m a
-withPeerSocket peer f = do
-    let (Just ap) = Peer._maybeActive peer
-    let socket = Peer._socket ap
-    f socket
 
 keepAliveLoop :: (MonadReader PeerEnv m, MonadIO m, MonadLogger m) => m ()
 keepAliveLoop = forever $ liftIO (threadDelay timeout) >> sendMessage Message.KeepAlive

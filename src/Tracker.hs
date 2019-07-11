@@ -3,22 +3,23 @@
 
 module Tracker where
 
-import           Control.Lens
-import           Data.BEncode          (BEncode (..), bRead)
-import           Data.Binary.Get
 import qualified Data.ByteString       as BS
 import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString.Lazy  as LBS
+
+import           Control.Lens
+import           Data.Binary.Get
 import           Net.IPv4
 import           Network.HTTP.Simple
-import           Network.Socket        (PortNumber)
+
+import           Data.BEncode          (BEncode (..), bRead)
+import           Network.Socket        (PortNumber, SockAddr)
 import           Numeric               (showInt)
 
-import           Peer                  (Peer, PeerId)
-import           Types                 (Announce, InfoHash)
+-- Lib imports
+import qualified BEncoding
 
-import qualified BEncoding             as BEncoding
-import qualified Peer                  as Peer
+import           Types                 (Announce, InfoHash, PeerId)
 
 data TrackerRequest = TrackerRequest
     { _announce   :: Announce
@@ -33,7 +34,7 @@ makeLenses ''TrackerRequest
 
 data TrackerResponse = TrackerResponse
     { _interval :: Integer
-    , _peers    :: [Peer]
+    , _peers    :: [SockAddr]
     } deriving(Show)
 makeLenses ''TrackerResponse
 
@@ -77,12 +78,13 @@ parseTrackerResponse bs =
                          in x
         bdict         = let Just x = bRead bs in x
 
-parseCompactPeerList :: BEncode -> [Peer]
+parseCompactPeerList :: BEncode -> [SockAddr]
 parseCompactPeerList (BString s)
     | LBS.null s = []
     | otherwise  = runGet getCompactPeer (LBS.take 6 s) : parseCompactPeerList (BString $ LBS.drop 6 s)
 
-getCompactPeer :: Get Peer
-getCompactPeer = let getHost = ipv4 <$> getWord8 <*> getWord8 <*> getWord8 <*> getWord8
-                     getPort = fromIntegral <$> getWord16be
-                  in Peer.new <$> getHost <*> getPort
+getCompactPeer :: Get SockAddr
+getCompactPeer = undefined
+    -- let getHost = ipv4 <$> getWord8 <*> getWord8 <*> getWord8 <*> getWord8
+    --     getPort = fromIntegral <$> getWord16be
+    -- in Peer.new <$> getHost <*> getPort

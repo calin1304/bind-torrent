@@ -21,9 +21,6 @@ import           Data.Maybe                   (fromJust)
 import           Data.Text                    (Text)
 
 import           InternalMessage
-import qualified Peer                         as Peer
-
-import           Peer                         (Peer)
 
 data SelectorEnv = SelectorEnv
                    {  maxActiveConns :: Int

@@ -2,7 +2,7 @@ module InternalMessage where
 
 import           Data.ByteString
 
-import           Internal.Message
+import           Message
 
 data PeerToPiecesMgr = RequestNextPiece
                      | DonePiece PieceIx ByteString

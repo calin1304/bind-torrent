@@ -23,8 +23,8 @@ import           Control.Monad.STM
 import           Path
 import           System.IO
 
-import           Internal.Message
 import           InternalMessage
+import           Message
 
 type PiecesMgrM a = ReaderT PiecesMgrEnv (LoggingT IO) a
 

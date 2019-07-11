@@ -14,7 +14,7 @@ import           Control.Monad.IO.Class       (liftIO)
 import           Crypto.Hash.SHA1             (hashlazy)
 import           Data.Maybe                   (fromJust)
 import           Data.Text                    (Text)
-import           Network.Socket               (PortNumber)
+import           Network.Socket               (PortNumber, SockAddr)
 
 import           Control.Concurrent
 import           Control.Concurrent.Async
@@ -29,15 +29,12 @@ import           Debug.Trace
 import           Path
 
 -- Library imports
-import           Peer                         (Peer, PeerId)
-import           Types                        (Announce, InfoHash)
+import           Types                        (Announce, InfoHash, PeerId)
 
 import qualified BEncoding
-import qualified Peer
 import qualified PiecesManager
 import qualified PiecesManager                as PiecesMgr
 import qualified Protocol
-import qualified Selector
 import qualified Tracker
 
 type SessionM a = ReaderT SessionEnv (LoggingT IO) a
@@ -85,14 +82,14 @@ start' = do
                 pieceLen = 2 ^ 15
             liftIO $ async $ PiecesMgr.start =<< PiecesMgr.newEnvFromInfo ti root pieceLen
 
-          startSelector :: SessionM (Async ())
-          startSelector = do
-            traceM "Starting selector"
-            maxConn <- asks defaultMaxConns
-            e <- liftIO $ Selector.newEnv [] maxConn
-            liftIO $ async $ Selector.start e
+          -- startSelector :: SessionM (Async ())
+          -- startSelector = do
+          --   traceM "Starting selector"
+          --   maxConn <- asks defaultMaxConns
+          --   e <- liftIO $ Selector.newEnv [] maxConn
+          --   liftIO $ async $ Selector.start e
 
-getPeers :: (MonadReader SessionEnv m, MonadIO m ) => m [Peer]
+getPeers :: (MonadReader SessionEnv m, MonadIO m ) => m [SockAddr]
 getPeers = do
     config <- ask
     traceM $ mconcat ["Requesting peers from ", show (announce config)]
