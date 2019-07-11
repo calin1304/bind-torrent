@@ -10,6 +10,9 @@ import Data.Binary
 import Data.Binary.Get
 import Data.Binary.Put
 
+import qualified Data.Attoparsec.ByteString as AP
+import Data.Attoparsec.ByteString (Parser)
+
 import           Peer            (PeerId)
 import           Types           (InfoHash)
 
@@ -38,3 +41,10 @@ instance Binary Handshake where
 
 new :: InfoHash -> PeerId -> Handshake
 new = Handshake 19 "BitTorrent protocol" (BS.replicate 8 0)
+
+parser :: Parser Handshake
+parser = Handshake <$> AP.word8 19 
+                   <*> AP.string "BitTorrent protocol" 
+                   <*> AP.take 8 
+                   <*> AP.take 20 
+                   <*> AP.take 20    

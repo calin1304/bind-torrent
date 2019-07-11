@@ -1,13 +1,16 @@
 module Internal.Message where
 
-import           Data.Binary     (Binary, Get, Put, get, put)
-import           Data.Binary.Get (getByteString, getWord16be, getWord32be,
-                                  getWord8)
-import           Data.Binary.Put (putByteString, putWord16be, putWord32be,
-                                  putWord8)
-import qualified Data.ByteString as BS
-import           Data.Word       (Word16, Word32, Word8)
-import           Network.Socket  (PortNumber)
+import           Data.Binary                (Binary, Get, Put, get, put)
+import           Data.Binary.Get            (getByteString, getWord16be,
+                                             getWord32be, getWord8)
+import           Data.Binary.Put            (putByteString, putWord16be,
+                                             putWord32be, putWord8)
+import qualified Data.ByteString            as BS
+import           Data.Word                  (Word16, Word32, Word8)
+import           Network.Socket             (PortNumber)
+
+import qualified Data.Attoparsec.Binary     as AP
+import qualified Data.Attoparsec.ByteString as AP
 
 type PieceIx         = Word32
 type PieceOffset     = Word32
@@ -38,31 +41,21 @@ instance Binary Message where
                     1 -> return Unchoke
                     2 -> return Interested
                     3 -> return NotInterested
-                    4 -> do
-                        ix <- getWord32be
-                        return $ Have ix
+                    4 -> Have <$> getWord32be
                     5 -> do
                         bf <- get :: Get BS.ByteString
                         return $ BitField bf
-                    6 -> do
-                        ix     <- getWord32be
-                        begin  <- getWord32be
-                        length <- getWord32be
-                        return $ Request ix begin length
+                    6 -> Request <$> getWord32be <*> getWord32be <*> getWord32be
                     7 -> do
                         ix    <- getWord32be
                         begin <- getWord32be
                         block <- get :: Get BS.ByteString
                         return $ Piece ix begin block
-                    8 -> do
-                        ix     <- getWord32be
-                        begin  <- getWord32be
-                        length <- getWord32be
-                        return $ Cancel ix begin length
+                    8 -> Cancel <$> getWord32be <*> getWord32be <*> getWord32be
                     9 -> do
                         portNumber <- getWord16be :: Get Word16
                         return $ Port (fromIntegral portNumber)
-              
+
     put KeepAlive                 = putWord32be 0
     put Choke                     = putWord32be 1 >> putWord8 0
     put Unchoke                   = putWord32be 1 >> putWord8 1
@@ -76,7 +69,7 @@ instance Binary Message where
         putWord32be (fromIntegral (1 + BS.length bf) :: Word32)
         putWord8 5
         put bf
-    put (Request ix begin length) = do 
+    put (Request ix begin length) = do
         putWord32be 13
         putWord8 6
         putWord32be ix
@@ -89,27 +82,28 @@ instance Binary Message where
         putWord32be begin
         put block
     put (Cancel ix begin length)  = do
-        putWord32be 13 
+        putWord32be 13
         putWord8 8
         putWord32be ix
         putWord32be begin
         putWord32be length
     put (Port portNumber)         = do
-        putWord32be 3 
+        putWord32be 3
         putWord8 9
         put (fromIntegral portNumber :: Word16)
 
-mkMessage :: Message -> BS.ByteString
-mkMessage messageType = undefined
---     case messageType of
---         KeepAlive     -> Message 0 Nothing Nothing
---         Choke         -> Message 1 (Just 0) Nothing
---         Unchoke       -> Message 1 (Just 1) Nothing
---         Interested    -> Message 1 (Just 2) Nothing
---         NotInterested -> Message 1 (Just 3) Nothing
---         Have          -> undefined
---         BitField      -> undefined
---         Request       -> undefined
---         Piece         -> undefined
---         Cancel        -> undefined
---         Port          -> undefined
+parser :: AP.Parser Message
+parser = do
+    len <- fromIntegral <$> AP.anyWord32be
+    msgId <- AP.anyWord8
+    case msgId of
+        0 -> return KeepAlive
+        1 -> return Unchoke
+        2 -> return Interested
+        3 -> return NotInterested
+        4 -> Have <$> AP.anyWord32be
+        5 -> BitField <$> AP.take (len - 1)
+        6 -> Request <$> AP.anyWord32be <*> AP.anyWord32be <*> AP.anyWord32be
+        7 -> Piece <$> AP.anyWord32be <*> AP.anyWord32be <*> AP.take (len - 9)
+        8 -> Cancel <$> AP.anyWord32be <*> AP.anyWord32be <*> AP.anyWord32be
+        9 -> Port . fromIntegral <$> AP.anyWord16be

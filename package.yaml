@@ -24,13 +24,16 @@ dependencies:
 - binary
 - bytestring
 - ip
+- scotty
+- text
+- aeson
+- containers
 
 library:
   source-dirs: src
   dependencies:
     - cryptohash-sha1
     - bencode
-    - containers
     - base16-bytestring    
     - lens
     - text
@@ -48,7 +51,14 @@ library:
     - connection
     - monad-logger
     - attoparsec
+    - attoparsec-binary
+    - conduit
     - conduit-extra
+    - async
+    - stm
+    - path
+    - MonadRandom
+    - random
 
 executables:
   bind-torrent-exe:

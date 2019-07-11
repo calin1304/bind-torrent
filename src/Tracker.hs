@@ -9,10 +9,10 @@ import           Data.Binary.Get
 import qualified Data.ByteString       as BS
 import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString.Lazy  as LBS
-import Net.IPv4
+import           Net.IPv4
 import           Network.HTTP.Simple
+import           Network.Socket        (PortNumber)
 import           Numeric               (showInt)
-import Network.Socket(PortNumber)
 
 import           Peer                  (Peer, PeerId)
 import           Types                 (Announce, InfoHash)
