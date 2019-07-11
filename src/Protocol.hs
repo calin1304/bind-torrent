@@ -27,6 +27,7 @@ import           Data.Map                     (Map)
 import           Data.Maybe                   (fromJust, isNothing)
 import           Data.Set                     (Set)
 import           Data.Text                    (Text)
+import           Data.Torrent                 (TorrentInfo, tPieceLength)
 
 -- Network imports
 import qualified Net.IPv4                     as IPv4
@@ -70,6 +71,7 @@ newPeerState = PeerState False True False True
 
 data PeerEnv = PeerEnv
                       { infoHash            :: !InfoHash
+                      , torrentInfo         :: TorrentInfo
                       , peerId              :: !PeerId
                       , socket              :: !Socket
                       , ourPieces           :: !(TVar PieceSet)
@@ -84,8 +86,8 @@ data PeerEnv = PeerEnv
                       , nextBlocks          :: !(TVar (Maybe (Set Int)))
                       }
 
-newConfig :: InfoHash -> PeerId -> Socket -> TVar PieceSet -> IO PeerEnv
-newConfig ih pid sock ourPs = PeerEnv ih pid sock ourPs <$> pmgrChan
+newConfig :: InfoHash -> TorrentInfo -> PeerId -> Socket -> TVar PieceSet -> IO PeerEnv
+newConfig ih tinfo pid sock ourPs = PeerEnv ih tinfo pid sock ourPs <$> pmgrChan
                                         <*> newTVarIO False
                                         <*> newTChanIO
                                         <*> newTVarIO newPeerState
