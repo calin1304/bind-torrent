@@ -189,7 +189,7 @@ handleMessage msg = do
                 Nothing -> return ()
                 Just i  -> when (fromIntegral ix == i) $ do
                                -- get block index from piece and offset
-                               let blockIx = blockIxFromPiece ix off
+                               blockIx <- (fromIntegral off `div`) <$> blockSize
                                -- add block data to piece
                                liftIO $ atomically $ modifyTVar' (blocks env) (Map.insert blockIx bs)
                                cp <- completedPiece -- check if we completed the piece
@@ -203,38 +203,32 @@ handleMessage msg = do
         Message.Cancel ix off len  -> todo -- Cancel request
         Message.Port n             -> return ()
 
+-- | Check if currently requested piece is completed
 completedPiece :: PeerM Bool
 completedPiece = do
     env <- ask
     m <- liftIO $ readTVarIO (blocks env)
     let ixs = Map.toList m
-    pbc <- requestBlockCount
+    pbc <- asks $ fromIntegral . tPieceLength . torrentInfo
     return $ length ixs == pbc
 
-requestBlockCount :: PeerM Int
-requestBlockCount = todo
-
+-- | Concatenate all downloaded blocks into a ByteString
 pieceByteString :: PeerM BS.ByteString
 pieceByteString = do
     m <- asks blocks >>= liftIO . readTVarIO
     return (m & Map.toAscList & map snd & BS.concat)
 
-blockIxFromPiece :: Message.PieceIx -> Message.PieceOffset -> Int
-blockIxFromPiece = todo
-
 requestBlock :: Int -> PeerM ()
 requestBlock i = do
     env <- ask
-    off <- fromIntegral <$> blockOffset i
-    len <- fromIntegral <$> blockLen i
+    off <- fromIntegral . (i *) <$> blockSize
+    len <- fromIntegral <$> blockSize -- FIXME: If last piece, this could be smaller
     pieceIx <- fromIntegral . fromJust <$> liftIO (readTVarIO (maybeRequestedPiece env))
     TCP.send (socket env) (LBS.toStrict $ encode $ Message.Request pieceIx off len)
 
-blockOffset :: Int -> PeerM Int
-blockOffset = todo
-
-blockLen :: Int -> PeerM Int
-blockLen = todo
+-- | Default block size in bytes
+blockSize :: PeerM Int
+blockSize = return (2 ^ 14) -- FIXME: If downloading last piece, this could be smaller
 
 notifyPiecesMgr :: PeerToPiecesMgr -> PeerM ()
 notifyPiecesMgr m = do
@@ -247,6 +241,7 @@ continueDownload = do
     env <- ask
     next <- liftIO $ atomically $ do
         requested <- readTVar (requestedBlocks env)
+        -- Always have at most 10 pending requests
         next <- Set.take (10 - Set.size requested) . fromJust <$> readTVar (nextBlocks env)
         writeTVar (requestedBlocks env) (Set.union requested next)
         return next
