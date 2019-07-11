@@ -74,7 +74,6 @@ start' = do
     env <- ask
     services <- startServices
     void $ liftIO $ waitAnyCancel services
-    traceM "Should not get here in Session start'"
     where startServices :: SessionM [Async ()]
           startServices = sequence [ startPiecesMgr ]
 
