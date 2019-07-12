@@ -120,7 +120,7 @@ start = run $ do
     -- asks infoHash >>= \ih -> unless (isValidHandshake ih hs) (error "Invalid handshake")
     env <- ask
     "Starting all services" & logPeer
-    void $ liftIO $ (mapM (async . flip run env) >=> waitAnyCancel) [mainLoop, keepAliveLoop, checkAliveLoop]
+    void $ liftIO $ (mapM (async . flip run env) >=> waitAnyCancel) [mainLoop] --, keepAliveLoop, checkAliveLoop]
 
 -- | Encode and send handshake to remote peer
 sendHandshake :: (MonadReader PeerEnv m, MonadIO m) => m ()
@@ -172,7 +172,7 @@ handleMessage msg = do
         Message.Interested         -> undefined -- Don't handle
         Message.NotInterested      -> undefined -- Don't handle
         Message.Have ix            -> addPiece (fromIntegral ix) >> updateInterest >> updateRequested
-        Message.BitField bs        -> todo -- Add all pieces, adjust interest, adjust requested
+        Message.BitField s         -> forM_ s addPiece >> updateInterest >> updateRequested
         Message.Request ix off len -> undefined -- Don't handle
         Message.Piece ix off bs    -> do
             env <- ask

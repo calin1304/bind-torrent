@@ -1,16 +1,19 @@
 module Message where
 
+import qualified Data.Attoparsec.Binary     as AP
+import qualified Data.Attoparsec.ByteString as AP
+import qualified Data.Bits                  as Bits
+import qualified Data.ByteString            as BS
+import qualified Data.Set                   as Set
+
 import           Data.Binary                (Binary, Get, Put, get, put)
 import           Data.Binary.Get            (getByteString, getWord16be,
                                              getWord32be, getWord8)
 import           Data.Binary.Put            (putByteString, putWord16be,
                                              putWord32be, putWord8)
-import qualified Data.ByteString            as BS
+import           Data.Set                   (Set)
 import           Data.Word                  (Word16, Word32, Word8)
 import           Network.Socket             (PortNumber)
-
-import qualified Data.Attoparsec.Binary     as AP
-import qualified Data.Attoparsec.ByteString as AP
 
 import           Types                      (PieceIx, PieceOffset,
                                              PieceRequestLen)
@@ -21,7 +24,7 @@ data Message = KeepAlive
              | Interested
              | NotInterested
              | Have PieceIx
-             | BitField BS.ByteString
+             | BitField !(Set Int)
              | Request PieceIx PieceOffset PieceRequestLen
              | Piece PieceIx PieceOffset BS.ByteString
              | Cancel PieceIx PieceOffset PieceRequestLen
@@ -41,9 +44,7 @@ instance Binary Message where
                     2 -> return Interested
                     3 -> return NotInterested
                     4 -> Have <$> getWord32be
-                    5 -> do
-                        bf <- get :: Get BS.ByteString
-                        return $ BitField bf
+                    5 -> BitField .  bitfieldToSet <$> getByteString (fromIntegral length - 1)
                     6 -> Request <$> getWord32be <*> getWord32be <*> getWord32be
                     7 -> do
                         ix    <- getWord32be
@@ -64,10 +65,7 @@ instance Binary Message where
         putWord32be 5
         putWord8 4
         putWord32be ix
-    put (BitField bf)             = do
-        putWord32be (fromIntegral (1 + BS.length bf) :: Word32)
-        putWord8 5
-        put bf
+    put (BitField bf)             = undefined
     put (Request ix begin length) = do
         putWord32be 13
         putWord8 6
@@ -101,8 +99,15 @@ parser = do
         2 -> return Interested
         3 -> return NotInterested
         4 -> Have <$> AP.anyWord32be
-        5 -> BitField <$> AP.take (len - 1)
+        5 -> BitField . bitfieldToSet <$> AP.take (len - 1)
         6 -> Request <$> AP.anyWord32be <*> AP.anyWord32be <*> AP.anyWord32be
         7 -> Piece <$> AP.anyWord32be <*> AP.anyWord32be <*> AP.take (len - 9)
         8 -> Cancel <$> AP.anyWord32be <*> AP.anyWord32be <*> AP.anyWord32be
         9 -> Port . fromIntegral <$> AP.anyWord16be
+
+bitfieldToSet :: BS.ByteString -> Set Int
+bitfieldToSet bs =
+    let bf = BS.unpack bs
+        tests = map (\b -> filter (Bits.testBit b) [0..7]) bf
+        groups = zipWith (\s -> map (+s)) [0, 8 ..] tests
+    in Set.fromList $ concat groups
