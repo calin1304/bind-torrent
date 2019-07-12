@@ -7,6 +7,7 @@ module Session where
 
 import qualified Data.ByteString              as BS
 import qualified Data.ByteString.Lazy         as LBS
+import qualified Data.Map                     as Map
 import qualified Data.Set                     as Set
 import qualified Data.Text                    as Text
 import qualified Net.IPv4                     as IPv4
@@ -37,7 +38,6 @@ import           Path
 -- Library imports
 import           Types                        (Announce, InfoHash, PeerId)
 
-import qualified BEncoding
 import qualified Peer
 import qualified PiecesMgr
 import qualified Tracker
@@ -59,10 +59,9 @@ run r s = runStdoutLoggingT $ runReaderT r s
 
 newEnvFromMeta :: LBS.ByteString -> IO SessionEnv
 newEnvFromMeta meta = SessionEnv ih announce listenPort ti 4 <$> randomPeerId <*> newTVarIO Set.empty
-    where Just torrent = bRead meta
-          ih = bencodeHash $ fromJust $ BEncoding.lookupBDict "info" torrent
-          announce = LBS.toStrict $ (\(BString s) -> s) $ fromJust
-                        $ BEncoding.lookupBDict "announce" torrent
+    where Just (BDict torrent) = bRead meta
+          ih = bencodeHash $ fromJust $ Map.lookup "info" torrent
+          announce = let (Just (BString s)) = Map.lookup "announce" torrent in LBS.toStrict s
           bencodeHash = hashlazy . bPack
           randomPeerId = return "01234567890123456789" -- FIXME
           listenPort = 6881

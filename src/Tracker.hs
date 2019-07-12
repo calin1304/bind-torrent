@@ -6,6 +6,7 @@ module Tracker where
 import qualified Data.ByteString       as BS
 import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString.Lazy  as LBS
+import qualified Data.Map              as Map
 
 import           Control.Lens
 import           Data.Binary.Get
@@ -18,9 +19,6 @@ import           Data.List             (intercalate)
 import           Network.Simple.TCP    (HostName, ServiceName)
 import           Network.Socket        (PortNumber, SockAddr)
 import           Numeric               (showInt)
-
--- Lib imports
-import qualified BEncoding
 
 import           Types                 (Announce, InfoHash, PeerId)
 
@@ -75,11 +73,10 @@ parseTrackerResponse bs =
         Nothing          -> Right $ TrackerResponse wait_interval peerList
         Just (BString s) -> Left s
     where
-        failureReason = BEncoding.lookupBDict "failure_reason" bdict :: Maybe BEncode
-        wait_interval = let Just (BInt x) = BEncoding.lookupBDict "interval" bdict in x
-        peerList      = let Just x = parseCompactPeerList <$> BEncoding.lookupBDict "peers" bdict
-                         in x
-        bdict         = let Just x = bRead bs in x
+        failureReason = Map.lookup "failure_reason" bdict
+        Just (BInt wait_interval) = Map.lookup "interval" bdict
+        Just peerList      = parseCompactPeerList <$> Map.lookup "peers" bdict
+        Just (BDict bdict) =  bRead bs
 
 parseCompactPeerList :: BEncode -> [(HostName, ServiceName)]
 parseCompactPeerList (BString s)
