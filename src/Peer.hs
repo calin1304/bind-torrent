@@ -54,9 +54,11 @@ import           InternalMessage
 import           Message                      (Message)
 import           Types                        (InfoHash, PeerId, PieceIx,
                                                PieceOffset, PieceRequestLen)
-
 type PeerM = ReaderT PeerEnv (LoggingT IO)
+
+-- | Two way channel between Peer and PiecesMgr
 type PiecesMgrChan = (TChan PeerToPiecesMgr, TChan PiecesMgrToPeer)
+
 type PieceSet = Set Int
 
 data PeerState = PeerState
@@ -69,21 +71,29 @@ data PeerState = PeerState
 newPeerState = PeerState False True False True
 
 data PeerEnv = PeerEnv
-                      { infoHash            :: !InfoHash
-                      , torrentInfo         :: TorrentInfo
-                      , peerId              :: !PeerId
-                      , socket              :: !Socket
-                      , ourPieces           :: !(TVar PieceSet)
-                      , piecesMgrChan       :: !PiecesMgrChan
-                      , peerAlive           :: !(TVar Bool)
-                      , fromSelector        :: !(TChan SelectorToPeer)
-                      , peerState           :: !(TVar PeerState)
-                      , maybeRequestedPiece :: !(TVar (Maybe Int))
-                      , pieces              :: !(TVar PieceSet)
-                      , requestedBlocks     :: !(TVar PieceSet)
-                      , blocks              :: !(TVar (Map Int BS.ByteString))
-                      , nextBlocks          :: !(TVar (Maybe (Set Int)))
-                      }
+    { infoHash            :: !InfoHash
+    , torrentInfo         :: TorrentInfo
+    , peerId              :: !PeerId
+    , socket              :: !Socket
+    -- | Pieces we have downloaded so far from all Peers
+    -- TODO: This is a global var, refactor somehow ?
+    , ourPieces           :: !(TVar PieceSet)
+    , piecesMgrChan       :: !PiecesMgrChan
+    , peerAlive           :: !(TVar Bool)
+    , fromSelector        :: !(TChan SelectorToPeer)
+    -- | Interest and choking state
+    , peerState           :: !(TVar PeerState)
+    -- | Piece that we're currently downloading
+    , maybeRequestedPiece :: !(TVar (Maybe Int))
+    -- | Pieces remote peer has
+    , pieces              :: !(TVar PieceSet)
+    -- | Blocks for which we have Request messages sent
+    , requestedBlocks     :: !(TVar PieceSet)
+    -- | Data for all the blocks downloaded so far
+    , blocks              :: !(TVar (Map Int BS.ByteString))
+    -- | Remaining blocks to download to complete the requested piece
+    , nextBlocks          :: !(TVar (Maybe (Set Int)))
+    }
 
 newConfig :: InfoHash -> TorrentInfo -> PeerId -> Socket -> TVar PieceSet -> IO PeerEnv
 newConfig ih tinfo pid sock ourPs = PeerEnv ih tinfo pid sock ourPs <$> pmgrChan
@@ -101,11 +111,7 @@ run :: PeerM a -> PeerEnv -> IO a
 run m conf = runStdoutLoggingT $ runReaderT m conf
 
 start :: PeerEnv -> IO ()
-start = run start'
-
-start' :: PeerM ()
-start' = do
-    env <- ask
+start = run $ do
     hs <- sendHandshake >> recvHandshake
     asks infoHash >>= \ih -> unless (isValidHandshake ih hs) (error "Invalid handshake")
     startServices
@@ -113,11 +119,11 @@ start' = do
           startServices = do
             env <- ask
             let asyncIO = liftIO . async . flip run env
+            -- TODO: Refactor as single list of loops
             keepAlive  <- asyncIO keepAliveLoop
             checkAlive <- asyncIO checkAliveLoop
             inbound    <- asyncIO inboundLoop
-            outbound   <- asyncIO outboundLoop
-            void $ liftIO $ waitAnyCancel [keepAlive, checkAlive, inbound, outbound ]
+            void $ liftIO $ waitAnyCancel [keepAlive, checkAlive, inbound ]
 
 -- mkPeerConnection :: (MonadIO m) => SockAddr -> m Peer
 -- mkPeerConnection peer = do
@@ -127,46 +133,26 @@ start' = do
 --     let ap = Just $ Peer.newActivePeer socket
 --     return $ peer { Peer._maybeActive = ap }
 
+-- | Encode and send handshake to remote peer
 sendHandshake :: (MonadReader PeerEnv m, MonadIO m) => m ()
 sendHandshake = do
-    env <- ask
-    let ih           = infoHash env
-        clientPeerId = peerId env
-        hs = LBS.toStrict $ encode $ Handshake.new ih clientPeerId
-    liftIO $ TCP.send (socket env) hs
+    hs <- LBS.toStrict . encode <$> (Handshake.new <$> asks infoHash <*> asks peerId)
+    asks socket >>= liftIO . flip TCP.send hs
 
+-- | Receive and decode handshake from remote peer
 recvHandshake :: (MonadReader PeerEnv m, MonadIO m, MonadThrow m) => m Handshake
 recvHandshake = asks socket >>= \sock -> runConduit (sourceSocket sock .| sinkParser Handshake.parser)
 
+-- | Receive, decode and handle messages from remote peer
 inboundLoop :: PeerM ()
-inboundLoop = asks socket >>= (\s -> forever $ runConduit $  sourceSocket s
-                                                          .| conduitParser Message.parser
-                                                          .| mapM_C (handleMessage . snd)
-                                                          .| sinkNull)
+inboundLoop = do
+    s <- asks socket
+    forever $ runConduit $  sourceSocket s
+                         .| conduitParser Message.parser
+                         .| mapM_C (handleMessage . snd)
+                         .| sinkNull
 
-outboundLoop :: (MonadReader env m, MonadIO m) => m ()
-outboundLoop = todo --shouldRequest >>= \p -> forever (when (shouldRequest p) requestPiece)
-
-requestPiece :: (MonadReader PeerEnv m, MonadIO m) => m ()
-requestPiece =
-    asks socket >>= \s -> do
-                        (ix, offset, len) <- requestNextPiece
-                        let req = LBS.toStrict $ encode $ Message.Request ix offset len
-                        TCP.send s req
-
-requestNextPiece :: (MonadReader env m, MonadIO m)
-                 => m (PieceIx, PieceOffset, PieceRequestLen)
-requestNextPiece = do
-    env <- ask
-    --liftIO $ atomically $ do
-    --    writeTChan (toPiecesMgr env) RequestNextPiece
-    --    -- (NextPiece ix off len) <- readTChan (fromPiecesMgr conf)
-    --    -- return (ix, off, len)
-    todo
-
-shouldRequest :: PeerM Bool
-shouldRequest = todo
-
+-- | Handle messages from remote peer
 handleMessage :: Message -> PeerM ()
 handleMessage msg = do
     logDebugN $ mconcat ["Handling message ", Text.pack (show msg)]
@@ -229,11 +215,14 @@ requestBlock i = do
 blockSize :: PeerM Int
 blockSize = return (2 ^ 14) -- FIXME: If downloading last piece, this could be smaller
 
+-- | Send message to PiecesMgr
 notifyPiecesMgr :: PeerToPiecesMgr -> PeerM ()
 notifyPiecesMgr m = do
     (to, _) <- asks piecesMgrChan
     liftIO $ atomically $ writeTChan to m
 
+-- | Send Request messages for the currently donwloading piece.
+-- Should always have at most 10 pending requests.
 continueDownload :: PeerM ()
 continueDownload = do
     -- Send requests until we have 10 request in buffer
@@ -249,10 +238,10 @@ continueDownload = do
 setIsChoking :: (MonadReader PeerEnv m, MonadIO m) => Bool -> m ()
 setIsChoking b = asks peerState >>= liftIO . atomically . flip modifyTVar (\s -> s { isChoking = b })
 
--- Check if we should request new piece
--- if amInterested and not isChoking and we don't have a request
--- then pick a random piece from the pieces that remote has and we don't
--- and start downloading it
+-- | Check if we should request new piece.
+-- If we are interested, not choked and not currently downloading a piece then we should start downloading a new piece.
+-- Pick a random piece which we don't have but the remote peer has.
+-- TODO: Pick piece based on rarity
 updateRequested :: (MonadReader PeerEnv m, MonadIO m) => m ()
 updateRequested = do
     env <- ask
@@ -265,14 +254,11 @@ updateRequested = do
             ourPs <- readTVar $ ourPieces env
             let nextPiece = pickNewPiece $ Set.difference remotePs ourPs
             writeTVar (maybeRequestedPiece env) (Just nextPiece)
+    where pickNewPiece :: PieceSet -> Int
+          pickNewPiece = head . Set.toList
 
-pickNewPiece :: PieceSet -> Int
-pickNewPiece = head . Set.toList
-
--- Check if we should be interested in peer
--- we should be interested when remote has pieces that we don't have
--- we should send Interested message when amInterested changes
--- if we got all remote pieces check if we should send NotInterested
+-- | Function checks if peer has any pieces we need, updates our interest
+-- in remote peer and informs remote peer of our interest.
 updateInterest :: (MonadReader PeerEnv m, MonadIO m) => m ()
 updateInterest = do
     env <- ask
@@ -287,7 +273,7 @@ updateInterest = do
     where remoteHasPieces :: PieceSet -> PieceSet -> Bool
           remoteHasPieces remote our = not $ Set.null $ Set.difference remote our
 
--- Clear requested piece and blocks
+-- | Cancel all requested blocks
 cancelRequested :: (MonadReader PeerEnv m, MonadIO m) => m ()
 cancelRequested = do
     env <- ask
@@ -295,21 +281,27 @@ cancelRequested = do
         writeTVar (maybeRequestedPiece env) Nothing
         writeTVar (requestedBlocks env) Set.empty
 
--- Add piece to pieces that we have
+-- | Add piece as owned by remote peer
 addPiece :: (MonadReader PeerEnv m, MonadIO m) => Int -> m ()
 addPiece ix = asks pieces >>= \p -> liftIO $ atomically $ modifyTVar p (Set.insert ix)
 
+-- | Check if handshake is valid
+-- Handshake is valid if info hash and peer id match.
+-- FIXME: Check peer id ?
 isValidHandshake :: Types.InfoHash -> Handshake -> Bool
-isValidHandshake ih h = h ^. Handshake.infoHash == ih -- TODO: Check peer id
+isValidHandshake ih h = h ^. Handshake.infoHash == ih
 
+-- | Send message to remote peer
 sendMessage :: (MonadReader PeerEnv m, MonadIO m) => Message -> m ()
 sendMessage msg = asks socket >>= send'
     where send' sock = liftIO $ sendAll sock $ LBS.toStrict $ encode msg
 
+-- | Send KeepAlive message every 2 minutes to remote peer
 keepAliveLoop :: (MonadReader PeerEnv m, MonadIO m, MonadLogger m) => m ()
 keepAliveLoop = forever $ liftIO (threadDelay timeout) >> sendMessage Message.KeepAlive
     where timeout = 1000000 * 60 * 2
 
+-- | Check if remote peer is still alive. If not then end all computations.
 checkAliveLoop :: (MonadReader PeerEnv m, MonadIO m) => m ()
 checkAliveLoop = do
     env <- ask
