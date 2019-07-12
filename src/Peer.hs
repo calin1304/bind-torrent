@@ -30,7 +30,6 @@ import           Data.Text                    (Text)
 import           Data.Torrent                 (TorrentInfo, tPieceLength)
 
 -- Network imports
-import qualified Net.IPv4                     as IPv4
 import qualified Network.Simple.TCP           as TCP
 
 import           Net.IPv4                     (IPv4 (..))
@@ -125,19 +124,11 @@ start = run $ do
             inbound    <- asyncIO inboundLoop
             void $ liftIO $ waitAnyCancel [keepAlive, checkAlive, inbound ]
 
--- mkPeerConnection :: (MonadIO m) => SockAddr -> m Peer
--- mkPeerConnection peer = do
---     let peerAddr = IPv4.encodeString (Peer._ip peer)
---         peerPort = show $ Peer._port peer
---     socket <- liftIO $ fst <$> TCP.connectSock peerAddr peerPort
---     let ap = Just $ Peer.newActivePeer socket
---     return $ peer { Peer._maybeActive = ap }
-
 -- | Encode and send handshake to remote peer
 sendHandshake :: (MonadReader PeerEnv m, MonadIO m) => m ()
 sendHandshake = do
     hs <- LBS.toStrict . encode <$> (Handshake.new <$> asks infoHash <*> asks peerId)
-    asks socket >>= liftIO . flip TCP.send hs
+    asks socket >>= liftIO . flip sendAll hs
 
 -- | Receive and decode handshake from remote peer
 recvHandshake :: (MonadReader PeerEnv m, MonadIO m, MonadThrow m) => m Handshake
@@ -209,7 +200,7 @@ requestBlock i = do
     off <- fromIntegral . (i *) <$> blockSize
     len <- fromIntegral <$> blockSize -- FIXME: If last piece, this could be smaller
     pieceIx <- fromIntegral . fromJust <$> liftIO (readTVarIO (maybeRequestedPiece env))
-    TCP.send (socket env) (LBS.toStrict $ encode $ Message.Request pieceIx off len)
+    liftIO $ sendAll (socket env) (LBS.toStrict $ encode $ Message.Request pieceIx off len)
 
 -- | Default block size in bytes
 blockSize :: PeerM Int

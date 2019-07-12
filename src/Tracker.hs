@@ -12,7 +12,10 @@ import           Data.Binary.Get
 import           Net.IPv4
 import           Network.HTTP.Simple
 
+import           Control.Monad         (replicateM)
 import           Data.BEncode          (BEncode (..), bRead)
+import           Data.List             (intercalate)
+import           Network.Simple.TCP    (HostName, ServiceName)
 import           Network.Socket        (PortNumber, SockAddr)
 import           Numeric               (showInt)
 
@@ -34,7 +37,7 @@ makeLenses ''TrackerRequest
 
 data TrackerResponse = TrackerResponse
     { _interval :: Integer
-    , _peers    :: [SockAddr]
+    , _peers    :: [(HostName, ServiceName)]
     } deriving(Show)
 makeLenses ''TrackerResponse
 
@@ -78,13 +81,13 @@ parseTrackerResponse bs =
                          in x
         bdict         = let Just x = bRead bs in x
 
-parseCompactPeerList :: BEncode -> [SockAddr]
+parseCompactPeerList :: BEncode -> [(HostName, ServiceName)]
 parseCompactPeerList (BString s)
     | LBS.null s = []
     | otherwise  = runGet getCompactPeer (LBS.take 6 s) : parseCompactPeerList (BString $ LBS.drop 6 s)
 
-getCompactPeer :: Get SockAddr
-getCompactPeer = undefined
-    -- let getHost = ipv4 <$> getWord8 <*> getWord8 <*> getWord8 <*> getWord8
-    --     getPort = fromIntegral <$> getWord16be
-    -- in Peer.new <$> getHost <*> getPort
+getCompactPeer :: Get (HostName, ServiceName)
+getCompactPeer =
+    let getHost = intercalate "." <$> replicateM 4 (show <$> getWord8)
+        getPort = show . fromIntegral <$> getWord16be
+    in (,) <$> getHost <*> getPort
