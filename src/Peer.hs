@@ -10,15 +10,15 @@ import qualified Data.Map                     as Map
 import qualified Data.Set                     as Set
 import qualified Data.Text                    as Text
 
+import           Control.Concurrent.STM.TChan
+import           Control.Concurrent.STM.TVar
+import           Control.Lens
 import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Debug.Trace
 
 import           Control.Concurrent           (threadDelay)
 import           Control.Concurrent.Async     (async, waitAnyCancel)
-import           Control.Concurrent.STM.TChan
-import           Control.Concurrent.STM.TVar
-import           Control.Lens
 import           Control.Monad                (when)
 import           Control.Monad.IO.Class       (liftIO)
 import           Control.Monad.STM            (atomically)
