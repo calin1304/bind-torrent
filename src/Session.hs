@@ -32,9 +32,8 @@ import           Path
 import           Types                        (Announce, InfoHash, PeerId)
 
 import qualified BEncoding
-import qualified PiecesManager
-import qualified PiecesManager                as PiecesMgr
-import qualified Protocol
+import qualified Peer
+import qualified PiecesMgr
 import qualified Tracker
 
 type SessionM a = ReaderT SessionEnv (LoggingT IO) a

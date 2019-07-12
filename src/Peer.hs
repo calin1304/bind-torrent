@@ -2,7 +2,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
 
-module Protocol where
+module Peer where
 
 import qualified Data.ByteString              as BS
 import qualified Data.ByteString.Lazy         as LBS
@@ -52,7 +52,8 @@ import qualified Types
 import           Handshake                    (Handshake)
 import           InternalMessage
 import           Message                      (Message)
-import           Types                        (InfoHash, PeerId)
+import           Types                        (InfoHash, PeerId, PieceIx,
+                                               PieceOffset, PieceRequestLen)
 
 type PeerM = ReaderT PeerEnv (LoggingT IO)
 type PiecesMgrChan = (TChan PeerToPiecesMgr, TChan PiecesMgrToPeer)
@@ -154,7 +155,7 @@ requestPiece =
                         TCP.send s req
 
 requestNextPiece :: (MonadReader env m, MonadIO m)
-                 => m (Message.PieceIx, Message.PieceOffset, Message.PieceRequestLen)
+                 => m (PieceIx, PieceOffset, PieceRequestLen)
 requestNextPiece = do
     env <- ask
     --liftIO $ atomically $ do

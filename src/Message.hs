@@ -12,9 +12,8 @@ import           Network.Socket             (PortNumber)
 import qualified Data.Attoparsec.Binary     as AP
 import qualified Data.Attoparsec.ByteString as AP
 
-type PieceIx         = Word32
-type PieceOffset     = Word32
-type PieceRequestLen = Word32
+import           Types                      (PieceIx, PieceOffset,
+                                             PieceRequestLen)
 
 data Message = KeepAlive
              | Choke

@@ -2,7 +2,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
 
-module PiecesManager where
+module PiecesMgr where
 
 import           Data.Torrent                 (TorrentInfo)
 
@@ -24,7 +24,9 @@ import           Path
 import           System.IO
 
 import           InternalMessage
-import           Message
+
+import           Types                        (PieceIx, PieceOffset,
+                                               PieceRequestLen)
 
 type PiecesMgrM a = ReaderT PiecesMgrEnv (LoggingT IO) a
 
