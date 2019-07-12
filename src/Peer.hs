@@ -111,42 +111,43 @@ run m conf = runStdoutLoggingT $ runReaderT m conf
 
 start :: PeerEnv -> IO ()
 start = run $ do
+    "Sending handshake" & logPeer
     hs <- sendHandshake >> recvHandshake
+    "Validating handshake" & logPeer
     asks infoHash >>= \ih -> unless (isValidHandshake ih hs) (error "Invalid handshake")
-    startServices
-    where startServices :: PeerM ()
-          startServices = do
-            env <- ask
-            let asyncIO = liftIO . async . flip run env
-            -- TODO: Refactor as single list of loops
-            keepAlive  <- asyncIO keepAliveLoop
-            checkAlive <- asyncIO checkAliveLoop
-            inbound    <- asyncIO inboundLoop
-            void $ liftIO $ waitAnyCancel [keepAlive, checkAlive, inbound ]
+    env <- ask
+    "Starting all services" & logPeer
+    void $ liftIO $ (mapM (async . flip run env) >=> waitAnyCancel) [mainLoop, keepAliveLoop, checkAliveLoop]
 
 -- | Encode and send handshake to remote peer
 sendHandshake :: (MonadReader PeerEnv m, MonadIO m) => m ()
 sendHandshake = do
     hs <- LBS.toStrict . encode <$> (Handshake.new <$> asks infoHash <*> asks peerId)
     asks socket >>= liftIO . flip sendAll hs
+    "Sent handshake" & logPeer
 
 -- | Receive and decode handshake from remote peer
 recvHandshake :: (MonadReader PeerEnv m, MonadIO m, MonadThrow m) => m Handshake
-recvHandshake = asks socket >>= \sock -> runConduit (sourceSocket sock .| sinkParser Handshake.parser)
+recvHandshake = do
+    "Getting handshake from peer" & logPeer
+    asks socket >>= \sock -> runConduit (sourceSocket sock .| sinkParser Handshake.parser)
 
 -- | Receive, decode and handle messages from remote peer
-inboundLoop :: PeerM ()
-inboundLoop = do
+mainLoop :: PeerM ()
+mainLoop = do
+    "Listening for messages" & logPeer
     s <- asks socket
-    forever $ runConduit $  sourceSocket s
-                         .| conduitParser Message.parser
-                         .| mapM_C (handleMessage . snd)
-                         .| sinkNull
+    runConduit
+        $ sourceSocket s
+       .| conduitParser Message.parser
+       .| mapM_C (handleMessage . snd)
+       .| sinkNull
+    "End of main loop" & logPeer
 
 -- | Handle messages from remote peer
 handleMessage :: Message -> PeerM ()
 handleMessage msg = do
-    logDebugN $ mconcat ["Handling message ", Text.pack (show msg)]
+    "Handling message " ++ show msg & logPeer
     env <- ask
     liftIO $ atomically $ writeTVar (peerAlive env) True
     case msg of
@@ -284,17 +285,22 @@ isValidHandshake ih h = h ^. Handshake.infoHash == ih
 
 -- | Send message to remote peer
 sendMessage :: (MonadReader PeerEnv m, MonadIO m) => Message -> m ()
-sendMessage msg = asks socket >>= send'
+sendMessage msg = do
+    "Sending message " ++ show msg & logPeer
+    asks socket >>= send'
     where send' sock = liftIO $ sendAll sock $ LBS.toStrict $ encode msg
 
 -- | Send KeepAlive message every 2 minutes to remote peer
 keepAliveLoop :: (MonadReader PeerEnv m, MonadIO m, MonadLogger m) => m ()
-keepAliveLoop = forever $ liftIO (threadDelay timeout) >> sendMessage Message.KeepAlive
+keepAliveLoop = do
+    "Keeping connection alive" & logPeer
+    forever $ liftIO (threadDelay timeout) >> sendMessage Message.KeepAlive
     where timeout = 1000000 * 60 * 2
 
 -- | Check if remote peer is still alive. If not then end all computations.
 checkAliveLoop :: (MonadReader PeerEnv m, MonadIO m) => m ()
 checkAliveLoop = do
+    "Checking for signs of life from remote" & logPeer
     env <- ask
     liftIO $ forever $ do
         let timeout = 1000000 * 60 * 2
@@ -303,6 +309,7 @@ checkAliveLoop = do
             alive <- readTVar (peerAlive env)
             unless alive (error "Peer is not alive anymore")
             writeTVar (peerAlive env) False
+    "End of checkAliveLoop" & logPeer
 
 --selectorListenerLoop :: (MonadReader PeerEnv m, MonadIO m) => m ()
 --selectorListenerLoop = do
@@ -312,6 +319,6 @@ checkAliveLoop = do
 --    case msg of
 --        SetInterest b -> liftIO $ atomically $ writeTVar (getPeer env) (Peer.setAmInterested peer b)
 
-logProtocol t = traceM
+logPeer s = traceM $ mconcat ["Peer: ", s]
 
 todo = error "TODO"

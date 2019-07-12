@@ -46,9 +46,8 @@ type SessionM a = ReaderT SessionEnv (LoggingT IO) a
 
 data SessionEnv = SessionEnv
               { infoHash         :: !InfoHash
-              , announce         :: !Announce
+              , torrent          :: !Torrent
               , listenPort       :: !PortNumber
-              , tinfo            :: !TorrentInfo
               , defaultMaxConns  :: !Int
               , peerId           :: !PeerId
               , downloadedPieces :: !(TVar (Set Int))
@@ -58,21 +57,22 @@ run :: SessionM a -> SessionEnv -> IO a
 run r s = runStdoutLoggingT $ runReaderT r s
 
 newEnvFromMeta :: LBS.ByteString -> IO SessionEnv
-newEnvFromMeta meta = SessionEnv ih announce listenPort ti 4 <$> randomPeerId <*> newTVarIO Set.empty
-    where Just (BDict torrent) = bRead meta
-          ih = bencodeHash $ fromJust $ Map.lookup "info" torrent
-          announce = let (Just (BString s)) = Map.lookup "announce" torrent in LBS.toStrict s
+newEnvFromMeta meta = SessionEnv ih torrent listenPort 4 <$> randomPeerId <*> newTVarIO Set.empty
+    where Just (BDict metaDict) = bRead meta
+          ih = bencodeHash $ fromJust $ Map.lookup "info" metaDict
           bencodeHash = hashlazy . bPack
           randomPeerId = return "01234567890123456789" -- FIXME
           listenPort = 6881
-          ti = tInfo $ fromRight (error "Error reading torrent") $ readTorrent meta
+          torrent = fromRight (error "Error reading torrent") $ readTorrent meta
 
 start :: SessionEnv -> IO ()
 start = run $ do
     env <- ask
+    "Starting services" & logSession
     services <- startServices
     -- FIXME: getPeers also returns us
     peers <- filter (\(_, port) -> port /= "6881") <$> getPeers
+    mconcat ["Got peers: ", show peers] & logSession
     socks <- forM peers $ fmap fst . uncurry connectSock
     peers' <- forM socks startPeer
     void $ liftIO $ waitAnyCancel peers'
@@ -81,7 +81,7 @@ start = run $ do
 
           startPiecesMgr :: SessionM (Async ())
           startPiecesMgr = do
-            ti <- asks tinfo
+            ti <- asks $ tInfo . torrent
             let root = $(mkAbsDir "/home/calin/Downloads")
                 pieceLen = 2 ^ 15
             liftIO $ async $ PiecesMgr.start =<< PiecesMgr.newEnvFromInfo ti root pieceLen
@@ -89,21 +89,22 @@ start = run $ do
           startPeer :: Socket -> SessionM (Async ())
           startPeer sock = do
               ih <- asks infoHash
-              ti <- asks tinfo
+              ti <- asks $ tInfo . torrent
               pid <- asks peerId
               ourPs <- asks downloadedPieces
               env <- liftIO $ Peer.newConfig ih ti pid sock ourPs
               liftIO $ async $ Peer.start env
 
 
-getPeers :: (MonadReader SessionEnv m, MonadIO m ) => m [(HostName, ServiceName)]
+getPeers :: SessionM [(HostName, ServiceName)]
 getPeers = do
-    config <- ask
-    response <- liftIO $ Tracker.sendRequest $ Tracker.mkTrackerRequest (announce config)
-                                                  (infoHash config)
-                                                  (peerId config)
-                                                  (listenPort config)
+    Just announce <- fmap LBS.toStrict <$> asks (tAnnounce . torrent)
+    ih <- asks infoHash
+    pi <- asks peerId
+    lp <- asks listenPort
+    response <- liftIO $ Tracker.sendRequest $ Tracker.mkTrackerRequest announce ih pi lp
     case response of
         Left _  -> error "Response error"
         Right x -> return $ x ^. Tracker.peers
 
+logSession s = traceM $ mconcat ["Session: ", s]
