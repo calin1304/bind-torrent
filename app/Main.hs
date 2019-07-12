@@ -41,4 +41,3 @@ main :: IO ()
 main = do
     [fname] <- getArgs
     LBS.readFile fname >>= Session.newEnvFromMeta >>= Session.start
-    traceM "Should not get here"

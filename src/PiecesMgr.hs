@@ -125,11 +125,4 @@ newEnvFromInfo tinfo root pieceLen =
               | otherwise       = Just $ BS.splitAt 20 bs
 
 start :: PiecesMgrEnv -> IO ()
-start env = void $ async $ run start' env
-
-start' :: (MonadReader PiecesMgrEnv m, MonadIO m) => m ()
-start' = do
-    conf <- ask
-    loop <- liftIO $ async $ run listenerLoop conf
-    liftIO $ waitAnyCancel [loop]
-    return ()
+start = run listenerLoop
