@@ -15,6 +15,7 @@ import           Control.Concurrent.STM.TVar
 import           Control.Lens
 import           Control.Monad.Logger
 import           Control.Monad.Reader
+import           Data.Torrent
 import           Debug.Trace
 
 import           Control.Concurrent           (threadDelay)
@@ -27,7 +28,6 @@ import           Data.Map                     (Map)
 import           Data.Maybe                   (fromJust, isNothing)
 import           Data.Set                     (Set)
 import           Data.Text                    (Text)
-import           Data.Torrent                 (TorrentInfo, tPieceLength)
 
 -- Network imports
 import qualified Network.Simple.TCP           as TCP
@@ -37,10 +37,11 @@ import           Network.Socket               (Socket)
 import           Network.Socket.ByteString    (sendAll)
 
 -- Conduit imports
-import           Conduit                      (MonadThrow, mapM_C, printC,
+import           Conduit                      (MonadThrow, headC, mapC, mapM_C,
                                                sinkNull)
 import           Data.Conduit                 (ConduitT, runConduit, (.|))
 import           Data.Conduit.Attoparsec      (conduitParser, sinkParser)
+import           Data.Conduit.Combinators     (iterM)
 import           Data.Conduit.Network         (sourceSocket)
 
 -- Library imports
@@ -71,7 +72,7 @@ newPeerState = PeerState False True False True
 
 data PeerEnv = PeerEnv
     { infoHash            :: !InfoHash
-    , torrentInfo         :: TorrentInfo
+    , torrentInfo         :: !TorrentInfo
     , peerId              :: !PeerId
     , socket              :: !Socket
     -- | Pieces we have downloaded so far from all Peers
@@ -92,6 +93,7 @@ data PeerEnv = PeerEnv
     , blocks              :: !(TVar (Map Int BS.ByteString))
     -- | Remaining blocks to download to complete the requested piece
     , nextBlocks          :: !(TVar (Maybe (Set Int)))
+    , waitingHandshake    :: !(TVar Bool)
     }
 
 newConfig :: InfoHash -> TorrentInfo -> PeerId -> Socket -> TVar PieceSet -> IO PeerEnv
@@ -104,6 +106,7 @@ newConfig ih tinfo pid sock ourPs = PeerEnv ih tinfo pid sock ourPs <$> pmgrChan
                                         <*> newTVarIO Set.empty
                                         <*> newTVarIO Map.empty
                                         <*> newTVarIO Nothing
+                                        <*> newTVarIO True
     where pmgrChan = (,) <$> newTChanIO <*> newTChanIO
 
 run :: PeerM a -> PeerEnv -> IO a
@@ -112,9 +115,9 @@ run m conf = runStdoutLoggingT $ runReaderT m conf
 start :: PeerEnv -> IO ()
 start = run $ do
     "Sending handshake" & logPeer
-    hs <- sendHandshake >> recvHandshake
+    hs <- sendHandshake -- >> recvHandshake
     "Validating handshake" & logPeer
-    asks infoHash >>= \ih -> unless (isValidHandshake ih hs) (error "Invalid handshake")
+    -- asks infoHash >>= \ih -> unless (isValidHandshake ih hs) (error "Invalid handshake")
     env <- ask
     "Starting all services" & logPeer
     void $ liftIO $ (mapM (async . flip run env) >=> waitAnyCancel) [mainLoop, keepAliveLoop, checkAliveLoop]
@@ -128,21 +131,33 @@ sendHandshake = do
 
 -- | Receive and decode handshake from remote peer
 recvHandshake :: (MonadReader PeerEnv m, MonadIO m, MonadThrow m) => m Handshake
-recvHandshake = do
-    "Getting handshake from peer" & logPeer
-    asks socket >>= \sock -> runConduit (sourceSocket sock .| sinkParser Handshake.parser)
+recvHandshake =
+    asks socket >>= \s -> runConduit (sourceSocket s
+                                   .| iterM (traceM . show)
+                                   .| sinkParser Handshake.parser)
 
 -- | Receive, decode and handle messages from remote peer
 mainLoop :: PeerM ()
 mainLoop = do
     "Listening for messages" & logPeer
     s <- asks socket
-    runConduit
-        $ sourceSocket s
-       .| conduitParser Message.parser
-       .| mapM_C (handleMessage . snd)
-       .| sinkNull
+    runConduit $ sourceSocket s .| mainConduit .| sinkNull
     "End of main loop" & logPeer
+
+mainConduit :: ConduitT BS.ByteString a PeerM ()
+mainConduit = do
+    "mainConduit" & logPeer
+    whs <- asks waitingHandshake
+    waitingForHandshake <- liftIO $ readTVarIO whs
+    if waitingForHandshake
+        then do
+            "waiting for handshake" & logPeer
+            liftIO $ atomically $ writeTVar whs False
+            ih <- asks infoHash
+            Just valid <- conduitParser Handshake.parser .| mapC (isValidHandshake ih . snd) .| headC
+            unless valid $ error "Invalid handshake"
+            mainConduit
+        else conduitParser Message.parser .| mapM_C (handleMessage .snd)
 
 -- | Handle messages from remote peer
 handleMessage :: Message -> PeerM ()
@@ -310,14 +325,6 @@ checkAliveLoop = do
             unless alive (error "Peer is not alive anymore")
             writeTVar (peerAlive env) False
     "End of checkAliveLoop" & logPeer
-
---selectorListenerLoop :: (MonadReader PeerEnv m, MonadIO m) => m ()
---selectorListenerLoop = do
---    env <- ask
---    msg <- liftIO $ atomically $ readTChan (fromSelector env)
---    peer <- liftIO $ readPeer env
---    case msg of
---        SetInterest b -> liftIO $ atomically $ writeTVar (getPeer env) (Peer.setAmInterested peer b)
 
 logPeer s = traceM $ mconcat ["Peer: ", s]
 
