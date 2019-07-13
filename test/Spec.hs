@@ -20,8 +20,8 @@ import qualified Tracker                 as Tracker
 localhost = ipv4 127 0 0 1
 
 main :: IO ()
-main = hspec $ do
-    describe "Message" $
+main = hspec $
+    describe "Message" $ do
         describe "decode" $
             it "is inverse to encode" $ do
                 decode (encode KeepAlive) `shouldBe` KeepAlive
@@ -30,3 +30,6 @@ main = hspec $ do
                 decode (encode Interested) `shouldBe` Interested
                 decode (encode (Have 1)) `shouldBe` Have 1
 
+        describe "bitfieldToSet" $
+            it "works as expected" $
+                Set.toList (bitfieldToSet (BS.pack [128])) `shouldBe` [0]
