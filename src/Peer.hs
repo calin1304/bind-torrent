@@ -1,6 +1,7 @@
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE OverloadedStrings          #-}
 
 module Peer where
 
@@ -28,21 +29,21 @@ import           Data.Map                     (Map)
 import           Data.Maybe                   (fromJust, isNothing)
 import           Data.Set                     (Set)
 import           Data.Text                    (Text)
+import           Data.Void                    (Void)
 
 -- Network imports
 import qualified Network.Simple.TCP           as TCP
 
 import           Net.IPv4                     (IPv4 (..))
 import           Network.Socket               (Socket)
-import           Network.Socket.ByteString    (sendAll)
 
 -- Conduit imports
 import           Conduit                      (MonadThrow, headC, mapC, mapM_C,
-                                               sinkNull)
+                                               sinkNull, yield)
 import           Data.Conduit                 (ConduitT, runConduit, (.|))
 import           Data.Conduit.Attoparsec      (conduitParser, sinkParser)
 import           Data.Conduit.Combinators     (iterM)
-import           Data.Conduit.Network         (sourceSocket)
+import           Data.Conduit.Network         (sinkSocket, sourceSocket)
 
 -- Library imports
 import qualified Message
@@ -52,7 +53,9 @@ import           InternalMessage
 import           Message                      (Message)
 import           Types                        (InfoHash, PeerId, PieceIx,
                                                PieceOffset, PieceRequestLen)
-type PeerM = ReaderT PeerEnv (LoggingT IO)
+
+newtype PeerM a = PeerM (ReaderT PeerEnv (LoggingT IO) a)
+                  deriving (Functor, Applicative, Monad, MonadIO, MonadReader PeerEnv, MonadLogger, MonadThrow)
 
 -- | Two way channel between Peer and PiecesMgr
 type PiecesMgrChan = (TChan PeerToPiecesMgr, TChan PiecesMgrToPeer)
@@ -68,11 +71,15 @@ data PeerState = PeerState
 
 newPeerState = PeerState False True False True
 
+type PeerSourceC m = ConduitT () Message m ()
+type PeerSinkC m = ConduitT Message Void m ()
+
 data PeerEnv = PeerEnv
     { infoHash            :: !InfoHash
     , torrentInfo         :: !TorrentInfo
     , peerId              :: !PeerId
-    , socket              :: !Socket
+    , sourceC             :: !(PeerSourceC PeerM)
+    , sinkC               :: !(PeerSinkC PeerM)
     -- | Pieces we have downloaded so far from all Peers
     -- TODO: This is a global var, refactor somehow ?
     , ourPieces           :: !(TVar PieceSet)
@@ -94,8 +101,14 @@ data PeerEnv = PeerEnv
     , waitingHandshake    :: !(TVar Bool)
     }
 
+class (Monad m) => CanMessage m where
+    sendMessage :: Message -> m ()
+
+instance CanMessage PeerM where
+    sendMessage m = asks sinkC >>= \s -> runConduit (yield m .| s)
+
 newConfig :: InfoHash -> TorrentInfo -> PeerId -> Socket -> TVar PieceSet -> IO PeerEnv
-newConfig ih tinfo pid sock ourPs = PeerEnv ih tinfo pid sock ourPs <$> pmgrChan
+newConfig ih tinfo pid sock ourPs = PeerEnv ih tinfo pid siC soC ourPs <$> pmgrChan
                                         <*> newTVarIO False
                                         <*> newTChanIO
                                         <*> newTVarIO newPeerState
@@ -106,37 +119,27 @@ newConfig ih tinfo pid sock ourPs = PeerEnv ih tinfo pid sock ourPs <$> pmgrChan
                                         <*> newTVarIO Nothing
                                         <*> newTVarIO True
     where pmgrChan = (,) <$> newTChanIO <*> newTChanIO
+          siC = sourceSocket sock .| conduitParser Message.parser .| mapC snd
+          soC = mapC (LBS.toStrict . encode) .| sinkSocket sock
 
 run :: PeerM a -> PeerEnv -> IO a
-run m conf = runStdoutLoggingT $ runReaderT m conf
+run (PeerM m) conf = runStdoutLoggingT $ runReaderT m conf
 
 start :: PeerEnv -> IO ()
 start = run $ do
     "Sending handshake" & logPeer
-    hs <- sendHandshake -- >> recvHandshake
-    "Validating handshake" & logPeer
-    -- asks infoHash >>= \ih -> unless (isValidHandshake ih hs) (error "Invalid handshake")
+    -- Sending handshake
+    sendMessage =<< Message.Handshake <$> asks infoHash <*> asks peerId
     env <- ask
     "Starting all services" & logPeer
     void $ liftIO $ (mapM (async . flip run env) >=> waitAnyCancel) [mainLoop] --, keepAliveLoop, checkAliveLoop]
-
--- | Encode and send handshake to remote peer
-sendHandshake :: (MonadReader PeerEnv m, MonadIO m) => m ()
-sendHandshake = do
-    hs <- LBS.toStrict . encode <$> (Message.Handshake <$> asks infoHash <*> asks peerId)
-    asks socket >>= liftIO . flip sendAll hs
-    "Sent handshake" & logPeer
 
 -- | Receive, decode and handle messages from remote peer
 mainLoop :: PeerM ()
 mainLoop = do
     "Listening for messages" & logPeer
-    s <- asks socket
-    runConduit
-        $ sourceSocket s
-       .| conduitParser Message.parser
-       .| mapM_C (handleMessage .snd)
-       .| sinkNull
+    source <- asks sourceC
+    runConduit $ source .| mapM_C handleMessage .| sinkNull
     "End of main loop" & logPeer
 
 -- | Handle messages from remote peer
@@ -202,7 +205,7 @@ requestBlock i = do
     off <- fromIntegral . (i *) <$> blockSize
     len <- fromIntegral <$> blockSize -- FIXME: If last piece, this could be smaller
     pieceIx <- fromIntegral . fromJust <$> liftIO (readTVarIO (maybeRequestedPiece env))
-    liftIO $ sendAll (socket env) (LBS.toStrict $ encode $ Message.Request pieceIx off len)
+    sendMessage $ Message.Request pieceIx off len
 
 -- | Default block size in bytes
 blockSize :: PeerM Int
@@ -237,6 +240,7 @@ setIsChoking b = asks peerState >>= liftIO . atomically . flip modifyTVar (\s ->
 -- TODO: Pick piece based on rarity
 updateRequested :: (MonadReader PeerEnv m, MonadIO m) => m ()
 updateRequested = do
+    "Updating requested piece" & logPeer
     env <- ask
     liftIO $ atomically $ do
         amInterested <- amInterested <$> readTVar (peerState env)
@@ -246,13 +250,14 @@ updateRequested = do
             remotePs <- readTVar $ pieces env
             ourPs <- readTVar $ ourPieces env
             let nextPiece = pickNewPiece $ Set.difference remotePs ourPs
+            "|- nextPiece is " ++ show nextPiece & logPeer
             writeTVar (maybeRequestedPiece env) (Just nextPiece)
     where pickNewPiece :: PieceSet -> Int
           pickNewPiece = head . Set.toList
 
 -- | Function checks if peer has any pieces we need, updates our interest
 -- in remote peer and informs remote peer of our interest.
-updateInterest :: (MonadReader PeerEnv m, MonadIO m) => m ()
+updateInterest :: (MonadReader PeerEnv m, MonadIO m, CanMessage m) => m ()
 updateInterest = do
     env <- ask
     (has, inform) <- liftIO $ atomically $ do
@@ -284,15 +289,8 @@ addPiece ix = asks pieces >>= \p -> liftIO $ atomically $ modifyTVar p (Set.inse
 isValidHandshake :: Types.InfoHash -> Message -> Bool
 isValidHandshake ih (Message.Handshake mih _)= mih == ih
 
--- | Send message to remote peer
-sendMessage :: (MonadReader PeerEnv m, MonadIO m) => Message -> m ()
-sendMessage msg = do
-    "Sending message " ++ show msg & logPeer
-    asks socket >>= send'
-    where send' sock = liftIO $ sendAll sock $ LBS.toStrict $ encode msg
-
 -- | Send KeepAlive message every 2 minutes to remote peer
-keepAliveLoop :: (MonadReader PeerEnv m, MonadIO m, MonadLogger m) => m ()
+keepAliveLoop :: (MonadReader PeerEnv m, MonadIO m, MonadLogger m, CanMessage m) => m ()
 keepAliveLoop = do
     "Keeping connection alive" & logPeer
     forever $ liftIO (threadDelay timeout) >> sendMessage Message.KeepAlive
