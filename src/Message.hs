@@ -125,8 +125,6 @@ messageParser = do
         9 -> Port . fromIntegral <$> AP.anyWord16be
 
 bitfieldToSet :: BS.ByteString -> Set Int
-bitfieldToSet bs =
-    let bf = BS.unpack bs
-        tests = map (\b -> filter (Bits.testBit b) [0..7]) bf
-        groups = zipWith (\s -> map (+s)) [0, 8 ..] tests
-    in Set.fromList $ concat groups
+bitfieldToSet bs = Set.fromList $ concat groups
+    where tests = map (\w -> filter (Bits.testBit w . (7-)) [0..7]) (BS.unpack bs)
+          groups = zipWith (map . flip (+)) [0, 8 ..] tests
