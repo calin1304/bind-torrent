@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Message where
 
 import qualified Data.Attoparsec.Binary     as AP
@@ -15,8 +17,8 @@ import           Data.Set                   (Set)
 import           Data.Word                  (Word16, Word32, Word8)
 import           Network.Socket             (PortNumber)
 
-import           Types                      (PieceIx, PieceOffset,
-                                             PieceRequestLen)
+import           Types                      (InfoHash, PeerId, PieceIx,
+                                             PieceOffset, PieceRequestLen)
 
 data Message = KeepAlive
              | Choke
@@ -29,9 +31,11 @@ data Message = KeepAlive
              | Piece PieceIx PieceOffset BS.ByteString
              | Cancel PieceIx PieceOffset PieceRequestLen
              | Port PortNumber
+             | Handshake InfoHash PeerId
              deriving (Eq, Show)
 
 instance Binary Message where
+    -- TODO: Handle Handshake message type
     get = do
         length <- getWord32be
         if length == 0
@@ -89,8 +93,23 @@ instance Binary Message where
         putWord8 9
         put (fromIntegral portNumber :: Word16)
 
+    put (Handshake infoHash peerId) = do
+        putWord8 19
+        putByteString "BitTorrent protocol"
+        putByteString (BS.replicate 8 0)
+        putByteString infoHash
+        putByteString peerId
+
 parser :: AP.Parser Message
-parser = do
+parser = AP.choice [handshakeParser, messageParser]
+
+handshakeParser :: AP.Parser Message
+handshakeParser = do
+    _ <- AP.word8 19 >> AP.string "BitTorrent protocol" >> AP.take 8
+    Handshake <$> AP.take 20 <*> AP.take 20
+
+messageParser :: AP.Parser Message
+messageParser = do
     len <- fromIntegral <$> AP.anyWord32be
     msgId <- AP.anyWord8
     case msgId of

@@ -45,11 +45,9 @@ import           Data.Conduit.Combinators     (iterM)
 import           Data.Conduit.Network         (sourceSocket)
 
 -- Library imports
-import qualified Handshake
 import qualified Message
 import qualified Types
 
-import           Handshake                    (Handshake)
 import           InternalMessage
 import           Message                      (Message)
 import           Types                        (InfoHash, PeerId, PieceIx,
@@ -125,39 +123,21 @@ start = run $ do
 -- | Encode and send handshake to remote peer
 sendHandshake :: (MonadReader PeerEnv m, MonadIO m) => m ()
 sendHandshake = do
-    hs <- LBS.toStrict . encode <$> (Handshake.new <$> asks infoHash <*> asks peerId)
+    hs <- LBS.toStrict . encode <$> (Message.Handshake <$> asks infoHash <*> asks peerId)
     asks socket >>= liftIO . flip sendAll hs
     "Sent handshake" & logPeer
-
--- | Receive and decode handshake from remote peer
-recvHandshake :: (MonadReader PeerEnv m, MonadIO m, MonadThrow m) => m Handshake
-recvHandshake =
-    asks socket >>= \s -> runConduit (sourceSocket s
-                                   .| iterM (traceM . show)
-                                   .| sinkParser Handshake.parser)
 
 -- | Receive, decode and handle messages from remote peer
 mainLoop :: PeerM ()
 mainLoop = do
     "Listening for messages" & logPeer
     s <- asks socket
-    runConduit $ sourceSocket s .| mainConduit .| sinkNull
+    runConduit
+        $ sourceSocket s
+       .| conduitParser Message.parser
+       .| mapM_C (handleMessage .snd)
+       .| sinkNull
     "End of main loop" & logPeer
-
-mainConduit :: ConduitT BS.ByteString a PeerM ()
-mainConduit = do
-    "mainConduit" & logPeer
-    whs <- asks waitingHandshake
-    waitingForHandshake <- liftIO $ readTVarIO whs
-    if waitingForHandshake
-        then do
-            "waiting for handshake" & logPeer
-            liftIO $ atomically $ writeTVar whs False
-            ih <- asks infoHash
-            Just valid <- conduitParser Handshake.parser .| mapC (isValidHandshake ih . snd) .| headC
-            unless valid $ error "Invalid handshake"
-            mainConduit
-        else conduitParser Message.parser .| mapM_C (handleMessage .snd)
 
 -- | Handle messages from remote peer
 handleMessage :: Message -> PeerM ()
@@ -194,6 +174,12 @@ handleMessage msg = do
                                    else continueDownload
         Message.Cancel ix off len  -> todo -- Cancel request
         Message.Port n             -> return ()
+        Message.Handshake ih pid   ->
+            liftIO $ atomically $ do
+                expected <- readTVar (waitingHandshake env)
+                unless expected (error "Was not expecting handshake now")
+                writeTVar (waitingHandshake env) False
+                unless (isValidHandshake (infoHash env) msg) (error "Invalid handshake")
 
 -- | Check if currently requested piece is completed
 completedPiece :: PeerM Bool
@@ -295,8 +281,8 @@ addPiece ix = asks pieces >>= \p -> liftIO $ atomically $ modifyTVar p (Set.inse
 -- | Check if handshake is valid
 -- Handshake is valid if info hash and peer id match.
 -- FIXME: Check peer id ?
-isValidHandshake :: Types.InfoHash -> Handshake -> Bool
-isValidHandshake ih h = h ^. Handshake.infoHash == ih
+isValidHandshake :: Types.InfoHash -> Message -> Bool
+isValidHandshake ih (Message.Handshake mih _)= mih == ih
 
 -- | Send message to remote peer
 sendMessage :: (MonadReader PeerEnv m, MonadIO m) => Message -> m ()
