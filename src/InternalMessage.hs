@@ -2,14 +2,12 @@ module InternalMessage where
 
 import           Data.ByteString
 
-import           Types           (PieceIx, PieceOffset, PieceRequestLen)
-
 data PeerToPiecesMgr = RequestNextPiece
-                     | DonePiece PieceIx ByteString
-                     | DoneBlock PieceIx PieceOffset ByteString
+                     | DonePiece Int ByteString
+                     | DoneBlock Int Int ByteString
                        deriving (Show)
 
-data PiecesMgrToPeer = NextPiece PieceIx PieceRequestLen
+data PiecesMgrToPeer = NextPiece Int Int
                        deriving (Show)
 
 newtype SelectorToPeer = SetInterest Bool

@@ -8,6 +8,8 @@ import qualified Data.Bits                  as Bits
 import qualified Data.ByteString            as BS
 import qualified Data.Set                   as Set
 
+import           Debug.Trace
+
 import           Data.Binary                (Binary, Get, Put, get, put)
 import           Data.Binary.Get            (getByteString, getWord16be,
                                              getWord32be, getWord8)
@@ -25,11 +27,11 @@ data Message = KeepAlive
              | Unchoke
              | Interested
              | NotInterested
-             | Have PieceIx
+             | Have Int
              | BitField !(Set Int)
-             | Request PieceIx PieceOffset PieceRequestLen
-             | Piece PieceIx PieceOffset BS.ByteString
-             | Cancel PieceIx PieceOffset PieceRequestLen
+             | Request Int Int Int
+             | Piece Int Int BS.ByteString
+             | Cancel Int Int Int
              | Port PortNumber
              | Handshake InfoHash PeerId
              deriving (Eq, Show)
@@ -47,15 +49,15 @@ instance Binary Message where
                     1 -> return Unchoke
                     2 -> return Interested
                     3 -> return NotInterested
-                    4 -> Have <$> getWord32be
+                    4 -> Have <$> fmap fromIntegral getWord32be
                     5 -> BitField .  bitfieldToSet <$> getByteString (fromIntegral length - 1)
-                    6 -> Request <$> getWord32be <*> getWord32be <*> getWord32be
+                    6 -> Request <$> fmap fromIntegral getWord32be <*> fmap fromIntegral getWord32be <*> fmap fromIntegral getWord32be
                     7 -> do
-                        ix    <- getWord32be
-                        begin <- getWord32be
+                        ix    <- fromIntegral <$> getWord32be
+                        begin <- fromIntegral <$> getWord32be
                         block <- get :: Get BS.ByteString
                         return $ Piece ix begin block
-                    8 -> Cancel <$> getWord32be <*> getWord32be <*> getWord32be
+                    8 -> Cancel <$> fmap fromIntegral getWord32be <*> fmap fromIntegral getWord32be <*> fmap fromIntegral getWord32be
                     9 -> do
                         portNumber <- getWord16be :: Get Word16
                         return $ Port (fromIntegral portNumber)
@@ -68,26 +70,26 @@ instance Binary Message where
     put (Have ix)                 = do
         putWord32be 5
         putWord8 4
-        putWord32be ix
+        putWord32be $ fromIntegral ix
     put (BitField bf)             = undefined
     put (Request ix begin length) = do
         putWord32be 13
         putWord8 6
-        putWord32be ix
-        putWord32be begin
-        putWord32be length
+        putWord32be $ fromIntegral ix
+        putWord32be $ fromIntegral begin
+        putWord32be $ fromIntegral length
     put (Piece ix begin block)    = do
         putWord32be (fromIntegral (9 + BS.length block) :: Word32)
         putWord8 (7 :: Word8)
-        putWord32be ix
-        putWord32be begin
+        putWord32be $ fromIntegral ix
+        putWord32be $ fromIntegral begin
         put block
     put (Cancel ix begin length)  = do
         putWord32be 13
         putWord8 8
-        putWord32be ix
-        putWord32be begin
-        putWord32be length
+        putWord32be $ fromIntegral ix
+        putWord32be $ fromIntegral begin
+        putWord32be $ fromIntegral length
     put (Port portNumber)         = do
         putWord32be 3
         putWord8 9
@@ -117,11 +119,11 @@ messageParser = do
         1 -> return Unchoke
         2 -> return Interested
         3 -> return NotInterested
-        4 -> Have <$> AP.anyWord32be
+        4 -> Have <$> fmap fromIntegral AP.anyWord32be
         5 -> BitField . bitfieldToSet <$> AP.take (len - 1)
-        6 -> Request <$> AP.anyWord32be <*> AP.anyWord32be <*> AP.anyWord32be
-        7 -> Piece <$> AP.anyWord32be <*> AP.anyWord32be <*> AP.take (len - 9)
-        8 -> Cancel <$> AP.anyWord32be <*> AP.anyWord32be <*> AP.anyWord32be
+        6 -> Request <$> fmap fromIntegral AP.anyWord32be <*> fmap fromIntegral AP.anyWord32be <*> fmap fromIntegral AP.anyWord32be
+        7 -> Piece <$> fmap fromIntegral AP.anyWord32be <*> fmap fromIntegral AP.anyWord32be <*> AP.take (len - 9)
+        8 -> Cancel <$> fmap fromIntegral AP.anyWord32be <*> fmap fromIntegral AP.anyWord32be <*> fmap fromIntegral AP.anyWord32be
         9 -> Port . fromIntegral <$> AP.anyWord16be
 
 bitfieldToSet :: BS.ByteString -> Set Int

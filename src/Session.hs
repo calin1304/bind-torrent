@@ -81,10 +81,10 @@ start = run $ do
 
           startPiecesMgr :: SessionM (Async ())
           startPiecesMgr = do
-            ti <- asks $ tInfo . torrent
+            t <- asks torrent
             let root = $(mkAbsDir "/home/calin/Downloads")
                 pieceLen = 2 ^ 15
-            liftIO $ async $ PiecesMgr.start =<< PiecesMgr.newEnvFromInfo ti root pieceLen
+            liftIO $ async $ PiecesMgr.start =<< PiecesMgr.newEnvFromInfo t root pieceLen
 
           startPeer :: Socket -> SessionM (Async ())
           startPeer sock = do
