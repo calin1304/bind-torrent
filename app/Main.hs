@@ -39,5 +39,6 @@ server = scotty 3000 $ do
 
 main :: IO ()
 main = do
-    [fname] <- getArgs
+    args <- getArgs
+    let fname = head args
     LBS.readFile fname >>= Session.newEnvFromMeta >>= Session.start
