@@ -1,26 +1,24 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import           Test.Hspec
-import           Test.QuickCheck
-
 import qualified Data.ByteString         as BS
 import qualified Data.ByteString.Lazy    as LBS
 import qualified Data.Set                as Set
 
 import           Data.ByteString.Builder
+import           Test.Hspec
+import           Test.QuickCheck
 
 import           Data.Binary             (decode, encode)
-import           Data.Binary.Get         (runGet)
-import           Net.IPv4                (ipv4)
 
-import           Message
 import qualified Peer                    as Peer
 import qualified Tracker                 as Tracker
 
-localhost = ipv4 127 0 0 1
+import           Message
+
+import           Peer                    (groupLength)
 
 main :: IO ()
-main = hspec $
+main = hspec $ do
     describe "Message" $ do
         describe "decode" $
             it "is inverse to encode" $ do
@@ -33,3 +31,9 @@ main = hspec $
         describe "bitfieldToSet" $
             it "works as expected" $
                 Set.toList (bitfieldToSet (BS.pack [128])) `shouldBe` [0]
+
+    describe "Peer" $
+        describe "groupLength" $
+            it "works as expected" $ do
+                groupLength 1 5 10 `shouldBe` 5
+                groupLength 1 5 6  `shouldBe` 1
