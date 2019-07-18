@@ -35,17 +35,11 @@ library:
     - cryptohash-sha1
     - bencode
     - base16-bytestring    
-    - lens
-    - text
     - http-types
     - http-client
-    - random-strings
-    - iproute
     - torrent
-    - either
     - network
     - network-simple
-    - lens
     - mtl
     - http-conduit
     - connection
@@ -57,8 +51,6 @@ library:
     - async
     - stm
     - path
-    - MonadRandom
-    - random
 
 executables:
   bind-torrent-exe:

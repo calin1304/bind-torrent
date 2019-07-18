@@ -1,7 +1,6 @@
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE TemplateHaskell       #-}
 
 module Session where
 
@@ -16,6 +15,7 @@ import           Control.Concurrent.STM.TVar
 import           Control.Monad                (forM_)
 import           Control.Monad.IO.Class       (liftIO)
 import           Crypto.Hash.SHA1             (hashlazy)
+import           Data.Function                ((&))
 import           Data.Maybe                   (fromJust)
 import           Data.Set                     (Set)
 import           Data.Text                    (Text)
@@ -26,7 +26,6 @@ import           Network.Socket               (PortNumber, SockAddr, Socket)
 import           Control.Concurrent
 import           Control.Concurrent.Async
 import           Control.Concurrent.STM.TChan
-import           Control.Lens
 import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Data.BEncode
@@ -95,7 +94,6 @@ start = run $ do
               env <- liftIO $ Peer.newConfig ih ti pid sock ourPs
               liftIO $ async $ Peer.start env
 
-
 getPeers :: SessionM [(HostName, ServiceName)]
 getPeers = do
     Just announce <- fmap LBS.toStrict <$> asks (tAnnounce . torrent)
@@ -105,6 +103,6 @@ getPeers = do
     response <- liftIO $ Tracker.sendRequest $ Tracker.mkTrackerRequest announce ih pi lp
     case response of
         Left _  -> error "Response error"
-        Right x -> return $ x ^. Tracker.peers
+        Right x -> return $ Tracker.peers x
 
 logSession s = traceM $ mconcat ["Session: ", s]

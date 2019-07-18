@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell   #-}
 
 module Tracker where
 
@@ -8,7 +7,6 @@ import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString.Lazy  as LBS
 import qualified Data.Map              as Map
 
-import           Control.Lens
 import           Data.Binary.Get
 import           Net.IPv4
 import           Network.HTTP.Simple
@@ -23,47 +21,45 @@ import           Numeric               (showInt)
 import           Types                 (Announce, InfoHash, PeerId)
 
 data TrackerRequest = TrackerRequest
-    { _announce   :: Announce
-    , _infoHash   :: InfoHash
-    , _peerId     :: PeerId
-    , _listenPort :: PortNumber
-    , _uploaded   :: Int
-    , _downloaded :: Int
-    , _left       :: Int
+    { announce   :: Announce
+    , infoHash   :: InfoHash
+    , peerId     :: PeerId
+    , listenPort :: PortNumber
+    , uploaded   :: Int
+    , downloaded :: Int
+    , left       :: Int
     } deriving(Show)
-makeLenses ''TrackerRequest
 
 data TrackerResponse = TrackerResponse
-    { _interval :: Integer
-    , _peers    :: [(HostName, ServiceName)]
+    { interval :: Integer
+    , peers    :: [(HostName, ServiceName)]
     } deriving(Show)
-makeLenses ''TrackerResponse
 
 mkTrackerRequest :: Announce -> InfoHash -> PeerId -> PortNumber -> TrackerRequest
 mkTrackerRequest an ih pi port = TrackerRequest
-                               { _announce = an
-                               , _infoHash = ih
-                               , _peerId = pi
-                               , _listenPort = port
-                               , _uploaded = 0
-                               , _downloaded = 0
-                               , _left = 0
+                               { announce = an
+                               , infoHash = ih
+                               , peerId = pi
+                               , listenPort = port
+                               , uploaded = 0
+                               , downloaded = 0
+                               , left = 0
                                }
 
 sendRequest :: TrackerRequest -> IO (Either LBS.ByteString TrackerResponse)
 sendRequest r = do
-    request <- setRequestQueryString query <$> parseRequest (C.unpack $ r ^. announce)
+    request <- setRequestQueryString query <$> parseRequest (C.unpack $ announce r)
     parseTrackerResponse . getResponseBody <$> httpLBS request
     where
         query :: [(BS.ByteString, Maybe BS.ByteString)]
         query = let itobs = C.pack . show
                 in map (\(x, y) -> (x, Just y))
-                       [ ("info_hash",          r ^. infoHash)
-                       , ("peer_id",            r ^. peerId)
-                       , ("port",       itobs $ fromIntegral (r ^. listenPort))
-                       , ("uploaded",   itobs $ r ^. uploaded)
-                       , ("downloaded", itobs $ r ^. downloaded)
-                       , ("left",       itobs $ r ^. left)
+                       [ ("info_hash",          infoHash r)
+                       , ("peer_id",            peerId r)
+                       , ("port",       itobs $ fromIntegral (listenPort r))
+                       , ("uploaded",   itobs $ uploaded r)
+                       , ("downloaded", itobs $ downloaded r)
+                       , ("left",       itobs $ left r)
                        , ("compact",    "1")
                        ]
 

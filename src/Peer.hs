@@ -10,7 +10,6 @@ import qualified Data.ByteString.Lazy         as LBS
 import qualified Data.ByteString.Lazy.Char8   as C
 import qualified Data.Map.Strict              as Map
 import qualified Data.Set                     as Set
-import qualified Network.Simple.TCP           as TCP
 
 import           Control.Concurrent.STM.TChan
 import           Control.Concurrent.STM.TVar
@@ -20,23 +19,21 @@ import           Data.Torrent
 import           Debug.Trace
 import           System.IO
 
-import           Conduit                      (MonadThrow, headC, mapC, mapM_C,
+import           Conduit                      (MonadThrow, mapC, mapM_C,
                                                sinkNull, yield)
 import           Control.Concurrent           (threadDelay)
 import           Control.Concurrent.Async     (async, waitAnyCancel)
 import           Control.Monad.IO.Class       (liftIO)
 import           Control.Monad.STM            (atomically)
-import           Data.Binary                  (decode, encode)
+import           Data.Binary                  (encode)
 import           Data.Conduit                 (ConduitT, runConduit, (.|))
 import           Data.Conduit.Attoparsec      (conduitParser, sinkParser)
-import           Data.Conduit.Combinators     (iterM)
 import           Data.Conduit.Network         (sinkSocket, sourceSocket)
 import           Data.Function                ((&))
 import           Data.Map                     (Map)
 import           Data.Maybe                   (isNothing)
 import           Data.Set                     (Set)
 import           Data.Void                    (Void)
-import           Net.IPv4                     (IPv4 (..))
 import           Network.Socket               (Socket)
 
 -- Library imports
