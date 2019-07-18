@@ -20,8 +20,11 @@ import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Control.Monad.STM
 import           Data.Torrent
+import           Debug.Trace
 import           Path
 import           System.IO
+
+import           Data.Function                ((&))
 
 import           InternalMessage
 
@@ -48,49 +51,34 @@ data PiecesMgrEnv = PiecesMgrEnv
     }
 
 data Peer = Peer
-            { fromPeer   :: TChan PeerToPiecesMgr
-            , toPeer     :: TChan PiecesMgrToPeer
-            , peerPieces :: [Bool]
+            { fromPeer :: TChan PeerToPiecesMgr
+            , toPeer   :: TChan PiecesMgrToPeer
             } deriving (Eq)
 
 run :: PiecesMgrM a -> PiecesMgrEnv -> IO a
 run m env = runStdoutLoggingT $  runReaderT m env
 
 listenerLoop :: PiecesMgrM ()
-listenerLoop = ask >>= liftIO . readTVarIO . peers >>= mapM_ handlePeer  >> listenerLoop
+listenerLoop = asks peers >>= liftIO . readTVarIO >>= mapM_ handlePeer  >> listenerLoop
 
 handlePeer :: Peer -> PiecesMgrM ()
 handlePeer peer = do
+    "Handling peer " & logPiecesMgr
     inMsg <- liftIO $ atomically $ readTChan $ fromPeer peer
     handleMessage peer inMsg
 
 handleMessage :: Peer -> PeerToPiecesMgr -> PiecesMgrM ()
 handleMessage peer inMsg = do
+    "Handling " ++ show inMsg & logPiecesMgr
     env <- ask
-    let len = fromIntegral $ pieceLen env
     case inMsg of
-        RequestNextPiece -> do
-            let ix = nextPieceToDownload peer
-            liftIO $ atomically $ writeTChan (toPeer peer) (NextPiece ix len)
-        DonePiece ix bs -> addPiece ix >> liftIO (readTVarIO $ pieces env) >>= writePiece . (!! ix)
+        DonePiece ix bs -> writePiece ix bs
 
-addPiece :: Int -> PiecesMgrM ()
-addPiece = undefined
+writePiece :: Int -> BS.ByteString-> PiecesMgrM ()
+writePiece ix bs = undefined
 
-nextPieceToDownload :: Peer -> Int
-nextPieceToDownload peer = fst $ head $ dropWhile snd $ zip [1..] (peerPieces peer)
-
-writePiece :: (MonadReader PiecesMgrEnv m, MonadIO m, MonadLogger m) => Piece -> m ()
-writePiece piece = do
-    env <- ask
-    off <- getPieceOffset piece
-    handle <- liftIO $ openFile (C.unpack . tName . tInfo . torrent $ env) ReadMode
-    liftIO $ hSeek handle AbsoluteSeek off
-    liftIO $ BS.hPut handle (pieceBS piece)
-    liftIO $ hClose handle
-
-getPieceOffset :: (MonadReader PiecesMgrEnv m) => Piece -> m Integer
-getPieceOffset p = fromIntegral . (* pieceIx p) <$> asks (fromIntegral . tLength . tInfo . torrent)
+getPieceOffset :: Int -> PiecesMgrM Integer
+getPieceOffset ix = (* fromIntegral ix) <$> asks (fromIntegral . tPieceLength . tInfo . torrent)
 
 -- TODO: Change first argument type to Digest SHA1
 isValidPiece :: BS.ByteString -> BS.ByteString -> Bool
@@ -110,17 +98,4 @@ newEnvFromInfo t root pieceLen =
 start :: PiecesMgrEnv -> IO ()
 start = run listenerLoop
 
--- | Get length of piece given the piece index,
--- default piece length and total length of file.
-pieceLength :: Int -> Int -> Integer -> Int
-pieceLength ix plen total =
-    if isLastPiece
-        then fromIntegral total `mod` plen
-        else plen
-    where isLastPiece = fromIntegral total `mod` plen > 0 && ix == fromIntegral total `div` plen
-
--- | Get length of a block given the index
--- from begining of piece, default block length
--- and total piece size.
-blockLength :: Int -> Int -> Integer -> Int
-blockLength = pieceLength
+logPiecesMgr s = traceM $ "PiecesMgr :: " ++ s

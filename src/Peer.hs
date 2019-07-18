@@ -115,7 +115,6 @@ newConfig ih tinfo pid sock ourPs = PeerEnv ih tinfo pid siC soC ourPs
 start :: PeerEnv -> IO ()
 start = run $ do
     "Sending handshake" & logPeer
-    -- Sending handshake
     sendMessage =<< Message.Handshake <$> asks infoHash <*> asks peerId
     env <- ask
     "Starting all services" & logPeer
@@ -166,12 +165,10 @@ handleMessage msg = do
                                    updateRequested
                                continueDownload
                                where completedPiece = do
-                                         downloaded  <- length . Map.keys <$> (liftIO . readTVarIO =<< asks blocks)
-                                         pieceLength <- getPieceLength
-                                         let lastPiece = if pieceLength `mod` defaultBlockLength > 0 then 1 else 0
-                                         let pieceBlocks = (pieceLength `div` defaultBlockLength) + lastPiece
-                                         "Downloaded: " ++ show downloaded ++ " Piece blocks: " ++ show pieceBlocks & logPeer
-                                         return $ downloaded == pieceBlocks
+                                         downloaded <- length . Map.keys <$> (liftIO . readTVarIO =<< asks blocks)
+                                         let blocks = pieceBlockCount (getPieceLength i $ torrentInfo env ) defaultBlockLength
+                                         "Downloaded: " ++ show downloaded ++ " Piece blocks: " ++ show blocks & logPeer
+                                         return $ downloaded == blocks
         Message.Cancel ix off len  -> todo -- Cancel request
         Message.Port n             -> return ()
         Message.Handshake ih pid   ->
@@ -181,11 +178,17 @@ handleMessage msg = do
                 writeTVar (waitingHandshake env) False
                 unless (isValidHandshake (infoHash env) msg) (error "Invalid handshake")
 
+-- | Get the number of blocks in a piece
+pieceBlockCount :: Int -> Int -> Int
+pieceBlockCount pieceLength blockLength =
+    let isLastPiece = (if pieceLength `mod` blockLength > 0 then 1 else 0)
+     in (pieceLength `div` blockLength) + isLastPiece
+
 writePiece :: Int -> BS.ByteString -> PeerM ()
 writePiece ix bs = do
-    env <- ask
+    fname <- asks (C.unpack . tName . torrentInfo)
     off <- (* fromIntegral ix) <$> asks (fromIntegral . tPieceLength . torrentInfo)
-    handle <- liftIO $ openFile (C.unpack . tName . torrentInfo $ env) ReadWriteMode
+    handle <- liftIO $ openFile fname ReadWriteMode
     "Writing piece " ++ show ix ++ " at offset " ++ show off & logPeer
     liftIO $ hSeek handle AbsoluteSeek off
     liftIO $ BS.hPut handle bs
@@ -211,30 +214,39 @@ continueDownload = do
                 "|- next blocks are " ++ show x & logPeer
                 return x
     forM_ next requestBlock
-    where requestBlock i = do
-              "Requesting block " ++ show i & logPeer
-              len <- getBlockSize i
-              let off = i * defaultBlockLength
-              r <- liftIO . readTVarIO =<< asks maybeRequestedPiece
+    where requestBlock :: Int -> PeerM ()
+          requestBlock bix = do
+              "Requesting block " ++ show bix & logPeer
+              env <- ask
+              r <- liftIO $ readTVarIO $ maybeRequestedPiece env
               case r of
-                  Nothing -> error "No piece selected for download"
-                  Just i  -> sendMessage $ Message.Request i off len
+                  Nothing  -> error "No piece selected for download"
+                  Just pix -> do
+                      let len = getBlockLength pix bix defaultBlockLength (torrentInfo env)
+                          off = bix * defaultBlockLength
+                      sendMessage $ Message.Request pix off len
 
 defaultBlockLength :: Int
 defaultBlockLength = 2 ^ 14 -- FIXME: Remove hardcoded value
 
-getPieceLength :: PeerM Int
-getPieceLength = do
-    env <- ask
-    maybePieceIndex <- liftIO $ readTVarIO $ maybeRequestedPiece env
-    case maybePieceIndex of
-        Nothing -> error "No piece request"
-        Just ix -> return $ PiecesMgr.pieceLength ix (fromIntegral defaultPieceSize) total
-            where defaultPieceSize = (tPieceLength . torrentInfo) env
-                  total = (tLength . torrentInfo) env
+-- | Get the length of a group of elements from
+-- a collection split into groups of at most
+-- 'defaultLength' sized groups.
+groupLength :: Int -> Int -> Int -> Int
+groupLength ix defaultLength total
+    | ix == total `div` defaultLength && lastLength > 0 = lastLength
+    | otherwise = defaultLength
+    where lastLength = total `mod` defaultLength
 
-getBlockSize :: Int -> PeerM Int
-getBlockSize ix = PiecesMgr.blockLength ix defaultBlockLength . fromIntegral <$> getPieceLength
+-- | Get length of piece given the piece index,
+-- default piece length and total length of file.
+getPieceLength :: Int -> TorrentInfo -> Int
+getPieceLength ix tinfo = groupLength ix (fromIntegral $ tPieceLength tinfo) (fromIntegral $ tLength tinfo)
+
+-- | Get length in bytes of block of given by index in the piece
+-- we're requesting.
+getBlockLength :: Int -> Int -> Int -> TorrentInfo -> Int
+getBlockLength pix bix blen tinfo = let plen = getPieceLength pix tinfo in groupLength bix blen plen
 
 setIsChoking :: (MonadReader PeerEnv m, MonadIO m) => Bool -> m ()
 setIsChoking b = asks peerState >>= liftIO . atomically . flip modifyTVar' (\s -> s { isChoking = b })
@@ -249,21 +261,19 @@ updateRequested = do
     env <- ask
     amInterested <- liftIO $ amInterested <$> readTVarIO (peerState env)
     isNotChoking <- liftIO $ not . isChoking <$> readTVarIO (peerState env)
-    noRequest <- liftIO $ isNothing <$> readTVarIO (maybeRequestedPiece env)
+    noRequest    <- liftIO $ isNothing <$> readTVarIO (maybeRequestedPiece env)
     when (amInterested && isNotChoking && noRequest) $ do
         remotePs <- liftIO $ readTVarIO $ pieces env
-        ourPs <- liftIO $ readTVarIO $ ourPieces env
+        ourPs    <- liftIO $ readTVarIO $ ourPieces env
         let nextPiece = maybeNewPiece $ Set.difference remotePs ourPs
         "|- next piece is " ++ show nextPiece & logPeer
         case nextPiece of
-            Nothing -> sendMessage Message.NotInterested
+            Nothing -> sendMessage Message.NotInterested -- Finished downloading all pieces from this peer
             Just p  -> do
-                liftIO $ atomically $ writeTVar (maybeRequestedPiece env) nextPiece
-                pieceLength <- getPieceLength
-                let blockCount  = pieceLength `div` fromIntegral defaultBlockLength
-                    blockCount' = blockCount + (if pieceLength `mod` fromIntegral defaultBlockLength > 0 then 1 else 0)
-                    pieceBlocks = Set.fromList [0..blockCount'-1]
-                liftIO $ atomically $ writeTVar (nextBlocks env) (Just pieceBlocks)
+                let c = pieceBlockCount (getPieceLength p (torrentInfo env)) defaultBlockLength
+                liftIO $ do
+                    atomically $ writeTVar (maybeRequestedPiece env) nextPiece
+                    atomically $ writeTVar (nextBlocks env) (Just (Set.fromList [0..(c-1)]))
     where maybeNewPiece :: PieceSet -> Maybe Int
           maybeNewPiece s = if Set.null s then Nothing else Just $ head $ Set.toList s
 
@@ -273,15 +283,13 @@ updateInterest :: (MonadReader PeerEnv m, MonadIO m, CanMessage m) => m ()
 updateInterest = do
     env <- ask
     (has, inform) <- liftIO $ atomically $ do
-        s <- readTVar $ peerState env
+        s        <- readTVar $ peerState env
         remotePs <- readTVar $ pieces env
-        ourPs <- readTVar $ ourPieces env
-        let has = remoteHasPieces remotePs ourPs
+        ourPs    <- readTVar $ ourPieces env
+        let has = not $ Set.null $ Set.difference remotePs ourPs
         writeTVar (peerState env) $ s { amInterested = has }
         return (has, amInterested s /= has)
     when inform $ sendMessage (if has then Message.Interested else Message.NotInterested)
-    where remoteHasPieces :: PieceSet -> PieceSet -> Bool
-          remoteHasPieces remote our = not $ Set.null $ Set.difference remote our
 
 -- | Cancel all requested blocks
 cancelRequested :: (MonadReader PeerEnv m, MonadIO m) => m ()

@@ -60,32 +60,20 @@ newEnvFromMeta meta = SessionEnv ih torrent listenPort 4 <$> randomPeerId <*> ne
     where Just (BDict metaDict) = bRead meta
           ih = bencodeHash $ fromJust $ Map.lookup "info" metaDict
           bencodeHash = hashlazy . bPack
-          randomPeerId = return "01234567890123456789" -- FIXME
+          randomPeerId = return "01234567890123456789" :: IO PeerId -- FIXME: Remove hardcoded value
           listenPort = 6881
           torrent = fromRight (error "Error reading torrent") $ readTorrent meta
 
 start :: SessionEnv -> IO ()
 start = run $ do
     env <- ask
-    "Starting services" & logSession
-    services <- startServices
     -- FIXME: getPeers also returns us
     peers <- filter (\(_, port) -> port /= "6881") <$> getPeers
     mconcat ["Got peers: ", show peers] & logSession
     socks <- forM peers $ fmap fst . uncurry connectSock
     peers' <- forM socks startPeer
     void $ liftIO $ waitAnyCancel peers'
-    where startServices :: SessionM [Async ()]
-          startServices = sequence [ startPiecesMgr ]
-
-          startPiecesMgr :: SessionM (Async ())
-          startPiecesMgr = do
-            t <- asks torrent
-            let root = $(mkAbsDir "/home/calin/Downloads")
-                pieceLen = 2 ^ 15
-            liftIO $ async $ PiecesMgr.start =<< PiecesMgr.newEnvFromInfo t root pieceLen
-
-          startPeer :: Socket -> SessionM (Async ())
+    where startPeer :: Socket -> SessionM (Async ())
           startPeer sock = do
               ih <- asks infoHash
               ti <- asks $ tInfo . torrent
