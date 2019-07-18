@@ -29,6 +29,18 @@ dependencies:
 - aeson
 - containers
 
+ghc-options: 
+- -Wall
+- -Wincomplete-uni-patterns
+- -Wincomplete-record-updates
+- -Wcompat
+- -Widentities
+- -Wredundant-constraints
+- -Wmissing-export-lists
+- -Wpartial-fields
+- -fhide-source-paths
+- -freverse-errors
+
 library:
   source-dirs: src
   dependencies:

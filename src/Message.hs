@@ -1,6 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Message where
+module Message
+       ( Message(..)
+       , parser
+       )
+       where
 
 import qualified Data.Attoparsec.Binary     as AP
 import qualified Data.Attoparsec.ByteString as AP
@@ -8,19 +12,16 @@ import qualified Data.Bits                  as Bits
 import qualified Data.ByteString            as BS
 import qualified Data.Set                   as Set
 
-import           Debug.Trace
-
-import           Data.Binary                (Binary, Get, Put, get, put)
+import           Data.Binary                (Binary, Get, get, put)
 import           Data.Binary.Get            (getByteString, getWord16be,
                                              getWord32be, getWord8)
-import           Data.Binary.Put            (putByteString, putWord16be,
-                                             putWord32be, putWord8)
+import           Data.Binary.Put            (putByteString, putWord32be,
+                                             putWord8)
 import           Data.Set                   (Set)
 import           Data.Word                  (Word16, Word32, Word8)
 import           Network.Socket             (PortNumber)
 
-import           Types                      (InfoHash, PeerId, PieceIx,
-                                             PieceOffset, PieceRequestLen)
+import           Types                      (InfoHash, PeerId)
 
 data Message = KeepAlive
              | Choke
@@ -39,18 +40,18 @@ data Message = KeepAlive
 instance Binary Message where
     -- TODO: Handle Handshake message type
     get = do
-        length <- getWord32be
-        if length == 0
+        len <- getWord32be
+        if len == 0
             then return KeepAlive
             else do
-                id <- getWord8
-                case id of
+                messageId <- getWord8
+                case messageId of
                     0 -> return Choke
                     1 -> return Unchoke
                     2 -> return Interested
                     3 -> return NotInterested
                     4 -> Have <$> fmap fromIntegral getWord32be
-                    5 -> BitField .  bitfieldToSet <$> getByteString (fromIntegral length - 1)
+                    5 -> BitField .  bitfieldToSet <$> getByteString (fromIntegral len - 1)
                     6 -> Request <$> fmap fromIntegral getWord32be <*> fmap fromIntegral getWord32be <*> fmap fromIntegral getWord32be
                     7 -> do
                         ix    <- fromIntegral <$> getWord32be
@@ -61,6 +62,7 @@ instance Binary Message where
                     9 -> do
                         portNumber <- getWord16be :: Get Word16
                         return $ Port (fromIntegral portNumber)
+                    _ -> error "Invalid message"
 
     put KeepAlive                 = putWord32be 0
     put Choke                     = putWord32be 1 >> putWord8 0
@@ -71,25 +73,25 @@ instance Binary Message where
         putWord32be 5
         putWord8 4
         putWord32be $ fromIntegral ix
-    put (BitField bf)             = undefined
-    put (Request ix begin length) = do
+    put BitField{}                = undefined
+    put (Request ix begin len)    = do
         putWord32be 13
         putWord8 6
         putWord32be $ fromIntegral ix
         putWord32be $ fromIntegral begin
-        putWord32be $ fromIntegral length
+        putWord32be $ fromIntegral len
     put (Piece ix begin block)    = do
         putWord32be (fromIntegral (9 + BS.length block) :: Word32)
         putWord8 (7 :: Word8)
         putWord32be $ fromIntegral ix
         putWord32be $ fromIntegral begin
         put block
-    put (Cancel ix begin length)  = do
+    put (Cancel ix begin len)  = do
         putWord32be 13
         putWord8 8
         putWord32be $ fromIntegral ix
         putWord32be $ fromIntegral begin
-        putWord32be $ fromIntegral length
+        putWord32be $ fromIntegral len
     put (Port portNumber)         = do
         putWord32be 3
         putWord8 9
@@ -125,6 +127,7 @@ messageParser = do
         7 -> Piece <$> fmap fromIntegral AP.anyWord32be <*> fmap fromIntegral AP.anyWord32be <*> AP.take (len - 9)
         8 -> Cancel <$> fmap fromIntegral AP.anyWord32be <*> fmap fromIntegral AP.anyWord32be <*> fmap fromIntegral AP.anyWord32be
         9 -> Port . fromIntegral <$> AP.anyWord16be
+        _ -> error "Invalid message"
 
 bitfieldToSet :: BS.ByteString -> Set Int
 bitfieldToSet bs = Set.fromList $ concat groups

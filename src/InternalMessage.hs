@@ -1,14 +1,14 @@
-module InternalMessage where
+module InternalMessage
+       ( PeerToPiecesMgr(..)
+       , PiecesMgrToPeer
+       ) where
 
 import           Data.ByteString
 
 data PeerToPiecesMgr = RequestNextPiece
                      | DonePiece Int ByteString
                      | DoneBlock Int Int ByteString
-                       deriving (Show)
+                     deriving (Show)
 
 data PiecesMgrToPeer = NextPiece Int Int
-                       deriving (Show)
-
-newtype SelectorToPeer = SetInterest Bool
-                         deriving (Show)
+                     deriving (Show)
