@@ -55,7 +55,6 @@ library:
     - mtl
     - http-conduit
     - connection
-    - monad-logger
     - attoparsec
     - attoparsec-binary
     - conduit

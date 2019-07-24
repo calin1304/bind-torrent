@@ -1,6 +1,5 @@
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Session
        ( SessionEnv
@@ -13,7 +12,6 @@ import           Control.Concurrent.STM.TVar
 import           Control.Exception
 import           Control.Monad               (forM_)
 import           Control.Monad.IO.Class      (liftIO)
-import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Crypto.Hash.SHA1            (hashlazy)
 import           Data.BEncode
@@ -36,7 +34,7 @@ import qualified Data.Set                    as Set
 import qualified Peer
 import qualified Tracker
 
-type SessionM a = ReaderT SessionEnv (LoggingT IO) a
+type SessionM a = ReaderT SessionEnv IO a
 
 data SessionEnv = SessionEnv
               { seInfoHash         :: !InfoHash
@@ -47,7 +45,7 @@ data SessionEnv = SessionEnv
               }
 
 run :: SessionM a -> SessionEnv -> IO a
-run r s = runStdoutLoggingT $ runReaderT r s
+run = runReaderT
 
 newEnvFromMeta :: LBS.ByteString -> IO SessionEnv
 newEnvFromMeta meta = SessionEnv infoHash torrent listenPort <$> randomPeerId <*> newTVarIO Set.empty
