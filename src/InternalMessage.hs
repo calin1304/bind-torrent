@@ -1,14 +1,10 @@
 module InternalMessage
-       ( PeerToPiecesMgr(..)
-       , PiecesMgrToPeer
+       ( PiecesMgrMessage(..)
+       , SessionMessage(..)
        ) where
 
 import           Data.ByteString
 
-data PeerToPiecesMgr = RequestNextPiece
-                     | DonePiece Int ByteString
-                     | DoneBlock Int Int ByteString
-                     deriving (Show)
+data PiecesMgrMessage = HavePiece Int ByteString
 
-data PiecesMgrToPeer = NextPiece Int Int
-                     deriving (Show)
+data SessionMessage = Cancel

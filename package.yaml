@@ -28,6 +28,9 @@ dependencies:
 - text
 - aeson
 - containers
+- torrent
+- stm
+- mtl
 
 ghc-options: 
 - -Wall
@@ -49,10 +52,8 @@ library:
     - base16-bytestring    
     - http-types
     - http-client
-    - torrent
     - network
     - network-simple
-    - mtl
     - http-conduit
     - connection
     - attoparsec
@@ -60,8 +61,8 @@ library:
     - conduit
     - conduit-extra
     - async
-    - stm
     - path
+    - time
 
 executables:
   bind-torrent-exe:

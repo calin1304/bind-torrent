@@ -4,6 +4,7 @@ module Tracker
        ( peers
        , mkTrackerRequest
        , sendRequest
+       , TrackerResponse
        )
        where
 

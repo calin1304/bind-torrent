@@ -15,18 +15,19 @@ import qualified Tracker                 as Tracker
 
 import           Message
 
-import           Peer                    (groupLength)
+import           Internal.Message        (bitfieldToSet)
+import           Internal.Peer           (groupLength)
 
 main :: IO ()
 main = hspec $ do
     describe "Message" $ do
         describe "decode" $
-            it "is inverse to encode" $ do
-                decode (encode KeepAlive) `shouldBe` KeepAlive
-                decode (encode Choke) `shouldBe` Choke
-                decode (encode Unchoke) `shouldBe` Unchoke
+            it "is inverse of encode" $ do
+                decode (encode KeepAlive)  `shouldBe` KeepAlive
+                decode (encode Choke)      `shouldBe` Choke
+                decode (encode Unchoke)    `shouldBe` Unchoke
                 decode (encode Interested) `shouldBe` Interested
-                decode (encode (Have 1)) `shouldBe` Have 1
+                decode (encode (Have 1))   `shouldBe` Have 1
 
         describe "bitfieldToSet" $
             it "works as expected" $

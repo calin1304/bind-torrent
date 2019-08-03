@@ -6,11 +6,8 @@ module Message
        )
        where
 
-import qualified Data.Attoparsec.Binary     as AP
-import qualified Data.Attoparsec.ByteString as AP
-import qualified Data.Bits                  as Bits
-import qualified Data.ByteString            as BS
-import qualified Data.Set                   as Set
+import           Internal.Message
+
 
 import           Data.Binary                (Binary, Get, get, put)
 import           Data.Binary.Get            (getByteString, getWord16be,
@@ -23,18 +20,28 @@ import           Network.Socket             (PortNumber)
 
 import           Types                      (InfoHash, PeerId)
 
+import qualified Data.Attoparsec.Binary     as AP
+import qualified Data.Attoparsec.ByteString as AP
+import qualified Data.ByteString            as BS
+
+type PieceIx = Int
+type PieceOffset = Int
+type BlockLength = Int
+type BlockData = BS.ByteString
+type PieceSet = Set PieceIx
+
 data Message = KeepAlive
              | Choke
              | Unchoke
              | Interested
              | NotInterested
-             | Have Int
-             | BitField !(Set Int)
-             | Request Int Int Int
-             | Piece Int Int BS.ByteString
-             | Cancel Int Int Int
-             | Port PortNumber
-             | Handshake InfoHash PeerId
+             | Have          PieceIx
+             | BitField      PieceSet
+             | Request       PieceIx PieceOffset BlockLength
+             | Piece         PieceIx PieceOffset BlockData
+             | Cancel        PieceIx PieceOffset BlockLength
+             | Port          PortNumber
+             | Handshake     InfoHash PeerId
              deriving (Eq, Show)
 
 instance Binary Message where
@@ -129,7 +136,3 @@ messageParser = do
         9 -> Port . fromIntegral <$> AP.anyWord16be
         _ -> error "Invalid message"
 
-bitfieldToSet :: BS.ByteString -> Set Int
-bitfieldToSet bs = Set.fromList $ concat groups
-    where tests = map (\w -> filter (Bits.testBit w . (7-)) [0..7]) (BS.unpack bs)
-          groups = zipWith (map . flip (+)) [0, 8 ..] tests
