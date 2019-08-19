@@ -35,6 +35,7 @@ import           Network.Socket               (PortNumber, SockAddr, Socket)
 import           InternalMessage              (PiecesMgrMessage (..),
                                                SessionMessage (..))
 import           MovingWindow                 (MovingWindow)
+import           TorrentInfo
 import           Types                        (InfoHash, PeerId)
 
 import qualified Data.ByteString.Lazy         as LBS
@@ -48,12 +49,6 @@ import qualified Tracker
 
 
 type Peer = (HostName, ServiceName)
-
-data TorrentStatus = TorrentStatus
-    { tsDownloaded    :: !Int
-    , tsDownloadSpeed :: !Int
-    , tsPeers         :: ![Peer]
-    }
 
 type SessionM a = ReaderT SessionEnv IO a
 
@@ -103,7 +98,7 @@ torrentStatusLoop :: SessionEnv -> IO ()
 torrentStatusLoop env = do
     liftIO $ do
         atomically $ do
-            downloadSpeed' <- MW.get <$> readTVar (seDownloadMovingWindow env)
+            downloadSpeed' <- fromIntegral . MW.get <$> readTVar (seDownloadMovingWindow env)
             downloaded <- toRational . Set.size <$> readTVar (seDownloadedPieces env)
             let len = tLength $ tInfo $ seTorrent env
             let totalPieces = toRational $ len `div` tPieceLength (tInfo $ seTorrent env)
@@ -112,7 +107,7 @@ torrentStatusLoop env = do
         threadDelay 1000000
     torrentStatusLoop env
     where
-        updateStatus dlSpeed dled _ = Just $ TorrentStatus dled dlSpeed []
+        updateStatus dlSpeed dled _ = Just $ TorrentStatus dled dlSpeed
 
 messageListener :: TChan SessionMessage -> IO ()
 messageListener chan = do
@@ -122,7 +117,7 @@ messageListener chan = do
     messageListener chan
 
 start :: SessionEnv -> IO ()
-start env = runReaderT start' env
+start env = void $ async $ runReaderT start' env
     where
         start' = do
             logSession "Starting session"

@@ -5,16 +5,20 @@ module Main (main) where
 import           Control.Concurrent.STM.TChan
 import           Control.Monad.Reader
 import           Control.Monad.STM
+import           Data.Time.Clock
+import           Data.Time.Format
 import           Data.Torrent
 import           Web.Scotty
 
 import           Control.Concurrent.STM.TVar  (TVar, newTVarIO, readTVarIO)
 import           Control.Monad.IO.Class       (liftIO)
+import           Data.Maybe                   (fromMaybe)
 import           Data.Text                    (Text)
 import           System.Environment           (getArgs)
 
 import           InternalMessage              (SessionMessage (..))
 import           Session                      (TorrentStatus (..))
+import           TorrentInfo
 
 import qualified Data.ByteString.Lazy         as LBS
 import qualified Data.Map.Strict              as M
@@ -42,26 +46,19 @@ server = do
             file "ui/js/main.js"
         get "/status" $ do
             maybeStatus <- liftIO $ readTVarIO ts
-            case maybeStatus of
-                Nothing -> json (M.fromList [ ("downloaded", -1), ("downloadSpeed", -1) ] :: M.Map Text Int)
-                Just (TorrentStatus downloaded downloadSpeed _) -> do
-                    let resp = M.fromList [ ("downloaded", downloaded)
-                                          , ("downloadSpeed", downloadSpeed)
-                                          ] :: M.Map Text Int
-                    json resp
+            json $ fromMaybe (TorrentStatus 0 0) maybeStatus
         post "/loadTorrent" $ do
+            -- Start session
             meta <- body :: ActionM LBS.ByteString
             config <- liftIO $ Session.newEnvFromMeta meta ts (toSession env)
             let torrent = Session.sessionTorrent config
             liftIO $ Session.start config
-            let torrentName = TE.decodeUtf8 $ LBS.toStrict $ tName $ tInfo torrent
-                torrentHash = ""  -- FIXME
-                torrentSize' = T.pack $ show $ torrentSize torrent
-            let resp = M.fromList [ ("name", torrentName)
-                                  , ("infoHash", torrentHash)
-                                  , ("size", torrentSize')
-                                  ] :: M.Map Text Text
-            json resp
+            -- Send torrent info response
+            let tname = TE.decodeUtf8 $ LBS.toStrict $ tName $ tInfo torrent
+                thash = ""  -- FIXME
+                tsize = fromIntegral $ torrentSize torrent
+            dateAdded <- liftIO $ T.pack . formatTime defaultTimeLocale "%d-%m-%Y" <$> getCurrentTime
+            json $ TorrentInfo tname thash tsize dateAdded
         post "/cancel" $
             liftIO $ atomically $ writeTChan (toSession env) Cancel
 

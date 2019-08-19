@@ -74,6 +74,7 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - bind-torrent
+    - time
 
 tests:
   bind-torrent-test:
