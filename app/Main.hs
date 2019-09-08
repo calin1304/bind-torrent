@@ -18,6 +18,7 @@ import           System.Environment           (getArgs)
 
 import           InternalMessage              (SessionMessage (..))
 import           Session                      (TorrentStatus (..))
+import           Network.Wai.Middleware.Static (addBase, staticPolicy)
 import           TorrentInfo
 
 import qualified Data.ByteString.Lazy         as LBS
@@ -37,13 +38,11 @@ server :: ReaderT Env IO ()
 server = do
     env <- ask
     ts <- asks envTorrentStatus
+    let base = "bind-torrent-web-ui"
     liftIO $ scotty 3000 $ do
-        get "/" $
-            file "ui/index.html"
-        get "/css/main.css" $
-            file "ui/css/main.css"
-        get "/js/main.js" $
-            file "ui/js/main.js"
+        middleware $
+            staticPolicy (addBase base)
+        get "/" $ file (base ++ "/index.html")
         get "/status" $ do
             maybeStatus <- liftIO $ readTVarIO ts
             json $ fromMaybe (TorrentStatus 0 0) maybeStatus

@@ -75,6 +75,7 @@ executables:
     dependencies:
     - bind-torrent
     - time
+    - wai-middleware-static
 
 tests:
   bind-torrent-test:

@@ -1,0 +1,3 @@
+[submodule "bind-torrent-web-ui"]
+	path = bind-torrent-web-ui
+	url = https://github.com/calin1304/bind-torrent-web-ui.git
