@@ -1,4 +1,6 @@
-module Internal.Message where
+module Internal.Message 
+    ( bitfieldToSet
+    ) where
 
 import           Data.Set        (Set)
 

@@ -9,14 +9,18 @@ module Tracker
 import qualified Data.ByteString       as BS
 import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString.Lazy  as LBS
-import qualified Data.Map              as Map
 
 import           Data.Binary.Get
 import           Network.HTTP.Simple
 
+import           Control.Lens          (swapped, (.~), _Left)
 import           Control.Monad         (replicateM)
+import           Control.Monad         (join)
 import           Data.BEncode          (BEncode (..), bRead)
+import           Data.BEncode.Parser
+import           Data.Function         ((&))
 import           Data.List             (intercalate)
+import           Data.Maybe            (fromJust)
 import           Network.Simple.TCP    (HostName, ServiceName)
 import           Network.Socket        (PortNumber)
 
@@ -48,7 +52,7 @@ mkTrackerRequest announce infoHash peerId port = TrackerRequest
     , trLeft       = 0
     }
 
-sendRequest :: TrackerRequest -> IO (Either LBS.ByteString TrackerResponse)
+sendRequest :: TrackerRequest -> IO (Either String TrackerResponse)
 sendRequest r = do
     request <- setRequestQueryString query <$> parseRequest (C.unpack $ trAnnounce r)
     parseTrackerResponse . getResponseBody <$> httpLBS request
@@ -65,17 +69,14 @@ sendRequest r = do
                        , ("compact",    "1")
                        ]
 
-parseTrackerResponse :: LBS.ByteString -> Either LBS.ByteString TrackerResponse
-parseTrackerResponse bs =
-    case failureReason of
-        Nothing          -> Right $ TrackerResponse wait_interval peerList
-        Just (BString s) -> Left s
-        _                -> error "Invalid failure reason"
+parseTrackerResponse :: LBS.ByteString -> Either String TrackerResponse
+parseTrackerResponse bs = join $ 
+    failureReason & (swapped . _Left) .~ (TrackerResponse <$> waitInterval <*> peerList)
     where
-        failureReason = Map.lookup "failure_reason" bdict
-        Just (BInt wait_interval) = Map.lookup "interval" bdict
-        Just peerList      = parseCompactPeerList <$> Map.lookup "peers" bdict
-        Just (BDict bdict) = bRead bs
+        bdict = fromJust $ bRead bs
+        failureReason = runParser (bstring (dict "failure_reason")) bdict
+        waitInterval = runParser (bint (dict "interval")) bdict
+        peerList = parseCompactPeerList <$> runParser (dict "peers") bdict
 
 parseCompactPeerList :: BEncode -> [(HostName, ServiceName)]
 parseCompactPeerList (BString s)

@@ -1,9 +1,16 @@
-{-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TypeSynonymInstances  #-}
 
-module Internal.Peer where
+module Internal.Peer
+    ( PeerEnv (..)
+    , PieceSet
+    , mainLoop
+    , sendMessage
+    , BlocksInfo (..)
+    , PiecesInfo (..)
+    , PeerState (..)
+    ) where
 
 import           Control.Concurrent.STM.TChan
 import           Control.Concurrent.STM.TVar
@@ -11,7 +18,8 @@ import           Control.Monad.Reader
 import           Data.Torrent
 import           Debug.Trace
 
-import           Conduit                      (await, mapM_C, sinkNull, yield)
+import           Conduit                      (await, yield)
+import           Control.Lens                 (forOf_, _Just)
 import           Control.Monad.Fail           (MonadFail)
 import           Control.Monad.IO.Class       (liftIO)
 import           Control.Monad.STM            (STM, atomically)
@@ -19,6 +27,7 @@ import           Data.Conduit                 (ConduitT, runConduit, (.|))
 import           Data.Function                ((&))
 import           Data.Map                     (Map)
 import           Data.Maybe                   (isNothing)
+import           Data.Maybe                   (fromJust)
 import           Data.Set                     (Set)
 import           Data.Time.Clock.POSIX        (getPOSIXTime)
 import           Data.Void                    (Void)
@@ -152,57 +161,52 @@ handleMessages = do
     env <- ask
     "Awaiting message" & logPeer
     maybeMessage <- await
-    case maybeMessage of
-        Nothing  -> return ()
-        Just msg -> do
-            "Handling message" & logPeer
-            -- liftIO $ atomically $ writeTVar (peerAlive env) True
-            case msg of
-                Message.KeepAlive          -> return ()
-                Message.Choke              ->
-                    liftIO $ atomically $ setIsChoking (peerState env) True >> cancelRequested env
-                Message.Unchoke            -> do
-                    liftIO $ atomically $ setIsChoking (peerState env) False
-                    updateRequested >> continueDownload
-                Message.Interested         -> undefined -- Don't handle
-                Message.NotInterested      -> undefined -- Don't handle
-                Message.Have ix            -> addPiece ix >> updateInterest >> updateRequested
-                Message.BitField s         -> forM_ s addPiece >> updateInterest >> updateRequested
-                Message.Request{}          -> undefined -- Don't handle
-                Message.Piece ix off bs    -> do
-                    Just i <- liftIO $ readTVarIO $ requestedPiece env
-                    when (ix == i) $ do
-                        -- get block index in piece
-                        let blockIx = off `div` defaultBlockLength
-                        addDownloadedBlock blockIx bs
-                        done <- completedPiece -- check if we completed the piece
-                        when done $ do
-                            "Piece completed" & logPeer
-                            pieceBS <- BS.concat . map snd . Map.toAscList
-                                        <$> liftIO (readTVarIO $ downloadedBlocks env)
-                            lift $ notifyPiecesMgr (HavePiece ix pieceBS)
-                            liftIO $ atomically $ do
-                                cancelRequested env
-                                modifyTVar' (localPieces env) (Set.insert i)
-                            yield (Message.Have i)
-                            updateRequested
-                        continueDownload
-                Message.Cancel{}           -> todo -- Cancel request
-                Message.Port{}             -> return ()
-                Message.Handshake{}        ->
-                    liftIO $ atomically $ do
-                        expected <- readTVar (waitingHandshake env)
-                        unless expected (error "Was not expecting handshake now")
-                        writeTVar (waitingHandshake env) False
-                        unless (isValidHandshake (infoHash env) msg) (error "Invalid handshake")
-            handleMessages
+    forOf_ _Just maybeMessage $ \msg -> do
+        "Handling message" & logPeer
+        -- liftIO $ atomically $ writeTVar (peerAlive env) True
+        case msg of
+            Message.KeepAlive          -> return ()
+            Message.Choke              ->
+                liftIO $ atomically $ setIsChoking (peerState env) True >> cancelRequested env
+            Message.Unchoke            -> do
+                liftIO $ atomically $ setIsChoking (peerState env) False
+                updateRequested >> continueDownload
+            Message.Interested         -> undefined -- Don't handle
+            Message.NotInterested      -> undefined -- Don't handle
+            Message.Have ix            -> addPiece ix >> updateInterest >> updateRequested
+            Message.BitField s         -> forM_ s addPiece >> updateInterest >> updateRequested
+            Message.Request{}          -> undefined -- Don't handle
+            Message.Piece ix off bs    -> do
+                Just i <- liftIO $ readTVarIO $ requestedPiece env
+                when (ix == i) $ do
+                    -- get block index in piece
+                    let blockIx = off `div` defaultBlockLength
+                    addDownloadedBlock blockIx bs
+                    done <- completedPiece -- check if we completed the piece
+                    when done $ do
+                        "Piece completed" & logPeer
+                        pieceBS <- BS.concat . map snd . Map.toAscList
+                                    <$> liftIO (readTVarIO $ downloadedBlocks env)
+                        lift $ notifyPiecesMgr (HavePiece ix pieceBS)
+                        liftIO $ atomically $ do
+                            cancelRequested env
+                            modifyTVar' (localPieces env) (Set.insert i)
+                        yield (Message.Have i)
+                        updateRequested
+                    continueDownload
+            Message.Cancel{}           -> todo -- Cancel request
+            Message.Port{}             -> return ()
+            Message.Handshake{}        ->
+                liftIO $ atomically $ do
+                    expected <- readTVar (waitingHandshake env)
+                    unless expected (error "Was not expecting handshake now")
+                    writeTVar (waitingHandshake env) False
+                    unless (isValidHandshake (infoHash env) msg) (error "Invalid handshake")
+        handleMessages
 
 pieceIndex :: (HasPiecesInfo env, MonadIO m) => env -> m Int
-pieceIndex env = do
-    mp <- liftIO $ readTVarIO (requestedPiece env)
-    case mp of
-        Nothing -> error "No piece requested"
-        Just x  -> return x
+pieceIndex env = liftIO $
+    fromJust (error "No piece requested") <$> readTVarIO (requestedPiece env)
 
 -- TODO: Replace Int with BlockIx
 -- TODO: Replace ByteString with BlockData
@@ -260,12 +264,10 @@ continueDownload = do
               "Requesting block " ++ show bix & logPeer
               env <- ask
               r <- liftIO $ readTVarIO $ requestedPiece env
-              case r of
-                  Nothing  -> error "No piece selected for download"
-                  Just pix -> do
-                      let len = getBlockLength pix bix defaultBlockLength (torrentInfo env)
-                          off = bix * defaultBlockLength
-                      yield $ Message.Request pix off len
+              r & maybe (error "No piece selected for download") (\pix -> do
+                    let len = getBlockLength pix bix defaultBlockLength (torrentInfo env)
+                        off = bix * defaultBlockLength
+                    yield $ Message.Request pix off len)
 
 -- | Get the length of a group of elements from
 -- a collection split into groups of at most
@@ -362,7 +364,7 @@ isValidHandshake ih (Message.Handshake mih _) = mih == ih
 isValidHandshake _ _                          = error "Invalid argument"
 
 logPeer :: (Applicative m) => String -> m ()
-logPeer s = traceM $ mconcat ["Peer: ", s]
+logPeer s = traceM $ "Peer: " <> s
 
 todo :: m ()
 todo = error "TODO"

@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Session
        ( SessionEnv
@@ -13,6 +13,7 @@ import           Control.Concurrent.Async
 import           Control.Concurrent.STM.TChan
 import           Control.Concurrent.STM.TVar
 import           Control.Exception
+import           Control.Lens
 import           Control.Monad.Reader
 import           Data.BEncode
 import           Data.Either
@@ -24,8 +25,9 @@ import           Control.Monad                (forM_)
 import           Control.Monad.IO.Class       (liftIO)
 import           Control.Monad.STM            (atomically)
 import           Crypto.Hash.SHA1             (hashlazy)
+import           Data.BEncode.Parser          (dict, runParser)
 import           Data.Function                ((&))
-import           Data.Maybe                   (catMaybes, fromJust, fromMaybe)
+import           Data.Maybe                   (catMaybes, fromMaybe)
 import           Data.Set                     (Set)
 import           Network.Simple.TCP           (HostName, ServiceName, closeSock,
                                                connectSock)
@@ -38,7 +40,6 @@ import           TorrentInfo
 import           Types                        (InfoHash, PeerId)
 
 import qualified Data.ByteString.Lazy         as LBS
-import qualified Data.Map                     as Map
 import qualified Data.Set                     as Set
 
 import qualified MovingWindow                 as MW
@@ -82,16 +83,13 @@ newEnvFromMeta meta ts chan =
         <*> newTChanIO
     where
         metaDict     = fromMaybe (error "Could not decode meta file") (bRead meta)
-        infoHash     = bencodeHash $ fromJust $ lookupBDict "info" metaDict
+        infoHash     = fromRight (error "Could not decode info hash") 
+            $ bencodeHash <$> runParser (dict "info") metaDict
         bencodeHash  = hashlazy . bPack
         randomPeerId = return "01234567890123456789" :: IO PeerId
                        -- ^ FIXME: Remove hardcoded value
         listenPort   = 6881
         torrent      = fromRight (error "Error reading torrent") $ readTorrent meta
-
-lookupBDict :: String -> BEncode -> Maybe BEncode
-lookupBDict k (BDict d) = Map.lookup k d
-lookupBDict _ _         = error "Invalid argument"
 
 torrentStatusLoop :: SessionEnv -> IO ()
 torrentStatusLoop env = do
@@ -110,8 +108,7 @@ torrentStatusLoop env = do
 
 messageListener :: TChan SessionMessage -> IO ()
 messageListener chan = do
-    msg <- atomically $ readTChan chan
-    case msg of
+    atomically $ readTChan chan >>= \case
         Cancel -> void $ throw SessionCanceled
     messageListener chan
 
@@ -122,7 +119,7 @@ start env = void $ async $ runReaderT start' env
             logSession "Starting session"
             peers <- take 20 . filter (\(_, port) -> port /= "6881") <$> getPeers
             -- ^ FIXME: getPeers also returns us
-            mconcat ["Got peers: ", show peers] & logSession
+            "Got peers: " <> show peers & logSession
             socks <- liftIO $ catMaybes <$> forM peers connectToPeer
             tsLoop <- liftIO $ async $ torrentStatusLoop env
             listener <- liftIO $ async $ messageListener (seToSession env)
@@ -152,9 +149,7 @@ start env = void $ async $ runReaderT start' env
                   connectToPeer :: (HostName, ServiceName) -> IO (Maybe Socket)
                   connectToPeer (host, port) = do
                       result <- try (connectSock host port) :: IO (Either SomeException (Socket, SockAddr))
-                      case result of
-                          Right (sock, _) -> return $ Just sock
-                          Left _          -> return Nothing
+                      pure $ result ^? _Right . _1
 
 getPeers :: SessionM [Peer]
 getPeers = do
@@ -164,13 +159,8 @@ getPeers = do
     lp <- asks seListenPort
     response <- liftIO $
         try (Tracker.sendRequest $ Tracker.mkTrackerRequest announce ih peerId lp)
-            :: SessionM (Either SomeException (Either LBS.ByteString Tracker.TrackerResponse))
-    case response of
-        Left _  -> return []
-        Right x ->
-            case x of
-                Left _  -> return []
-                Right p -> return $ Tracker.peers p
+            :: SessionM (Either SomeException (Either String Tracker.TrackerResponse))
+    pure $ response ^? (_Right . _Right) & maybe [] Tracker.peers
 
 logSession :: (Applicative m) => String -> m ()
-logSession s = traceM $ mconcat ["Session: ", s]
+logSession s = traceM $ "Session: " <> s

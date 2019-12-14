@@ -30,18 +30,9 @@ data PiecesMgrEnv = PiecesMgrEnv
     , pmFileHandle :: Handle
     }
 
-listenerLoop :: PiecesMgrM ()
-listenerLoop = do
-    inboundChan <- asks pmInbox
-    msg <- liftIO $ atomically $ readTChan inboundChan
-    handleMessage msg
-    listenerLoop
-
 handleMessage :: PiecesMgrMessage -> PiecesMgrM ()
-handleMessage inMsg = do
-    "Handling incoming message" & logPiecesMgr
-    case inMsg of
-        HavePiece ix bs -> writePiece ix bs
+handleMessage = \case
+    HavePiece ix bs -> writePiece ix bs        
 
 writePiece :: Int -> BS.ByteString -> PiecesMgrM ()
 writePiece ix bs = do
@@ -63,6 +54,9 @@ newEnvFromMeta torrent fromPeers = do
 
 start :: PiecesMgrEnv -> IO ()
 start = runReaderT listenerLoop
+    where 
+        listenerLoop = forever $ 
+            asks pmInbox >>= liftIO . atomically . readTChan >>= handleMessage 
 
 cleanup :: PiecesMgrEnv -> IO ()
 cleanup env = do

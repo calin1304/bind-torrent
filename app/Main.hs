@@ -11,7 +11,6 @@ import           Web.Scotty
 import           Control.Concurrent.STM.TVar  (TVar, newTVarIO, readTVarIO)
 import           Control.Monad.IO.Class       (liftIO)
 import           Data.Maybe                   (fromMaybe)
-import           Data.Text                    (Text)
 import           System.Environment           (getArgs)
 
 import           InternalMessage              (SessionMessage (..))
@@ -20,7 +19,6 @@ import           Network.Wai.Middleware.Static (addBase, staticPolicy)
 import           TorrentInfo
 
 import qualified Data.ByteString.Lazy         as LBS
-import qualified Data.Map.Strict              as M
 import qualified Data.Text                    as T
 import qualified Data.Text.Encoding           as TE
 
