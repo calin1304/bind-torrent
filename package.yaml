@@ -32,7 +32,12 @@ dependencies:
 - stm
 - mtl
 
-default-extension:
+default-extensions:
+  - DeriveGeneric
+  - DeriveAnyClass
+  - DerivingStrategies
+  - LambdaCase
+  - OverloadedStrings
   - StrictData
 
 ghc-options: 

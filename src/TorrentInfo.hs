@@ -1,5 +1,3 @@
-{-# LANGUAGE DeriveGeneric #-}
-
 module TorrentInfo
        ( TorrentInfo(..)
        , TorrentStatus(..)
@@ -22,6 +20,7 @@ instance ToJSON TorrentInfo where
 data TorrentStatus = TorrentStatus
     { tsDownloaded    :: Word
     , tsDownloadSpeed :: Word
-    } deriving (Generic, Show)
+    } 
+    deriving stock (Generic, Show)
+    deriving anyclass (ToJSON, FromJSON)
 
-instance ToJSON TorrentStatus where

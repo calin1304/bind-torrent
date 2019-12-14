@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 import           Conduit                 (ConduitT, runConduit, sinkList,
                                           yieldMany, (.|))
 import           Control.Monad.Reader
