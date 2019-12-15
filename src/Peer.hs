@@ -30,11 +30,18 @@ import qualified Data.Set                     as Set
 
 import qualified Message
 
-newConfig :: InfoHash -> TorrentInfo -> PeerId -> Socket -> TVar PieceSet
-          -> TVar MovingWindow -> TChan PiecesMgrMessage
-          -> IO PeerEnv
-newConfig ih tinfo pid sock ourPs mw toPiecesMgr =
-    PeerEnv ih tinfo pid siC soC ourPs mw toPiecesMgr
+newConfig 
+    :: InfoHash 
+    -> TorrentInfo 
+    -> PeerId 
+    -> Socket 
+    -> TVar PieceSet
+    -> TVar MovingWindow 
+    -> TChan PiecesMgrMessage
+    -> Int
+    -> IO PeerEnv
+newConfig ih tinfo pid sock ourPs mw toPiecesMgr blockSize =
+    PeerEnv ih tinfo pid siC soC blockSize ourPs mw toPiecesMgr
         <$> newTVarIO False
         <*> newTVarIO (PeerState True False)
         <*> newPiecesInfo

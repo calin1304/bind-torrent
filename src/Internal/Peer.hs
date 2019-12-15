@@ -64,6 +64,7 @@ data PeerEnv = PeerEnv
     , pePeerId               :: PeerId
     , peSourceC              :: PeerSourceC PeerM
     , peSinkC                :: PeerSinkC PeerM
+    , _blockSize             :: Int
     -- | Pieces we have downloaded so far from all Peers
     -- TODO: This is a global var, refactor somehow ?
     , peOurPieces            :: TVar PieceSet
@@ -141,7 +142,7 @@ handleMessages = do
                 Just i <- liftIO $ readTVarIO $ requestedPiece env
                 when (ix == i) $ do
                     -- get block index in piece
-                    let blockIx = off `div` defaultBlockLength
+                    blockIx <- asks $ (off `div`) . _blockSize  
                     lift $ addDownloadedBlock blockIx bs
                     done <- lift completedPiece -- check if we completed the piece
                     when done $ do
@@ -175,7 +176,7 @@ addDownloadedBlock :: Int -> BS.ByteString -> PeerM ()
 addDownloadedBlock blockIx bs = do
     env <- ask
     pix <- liftIO $ pieceIndex env
-    let blen = getBlockLength pix blockIx defaultBlockLength (peTorrentInfo env)
+    let blen = getBlockLength pix blockIx (_blockSize env) (peTorrentInfo env)
     liftIO $ do
         time <- getPOSIXTime
         atomically $ modifyTVar' (peDownloadMovingWindow env) (`MW.insert` (time, blen))
@@ -188,7 +189,8 @@ completedPiece :: PeerM Bool
 completedPiece = do
     downloaded <- length . Map.keys <$> (asks downloadedBlocks >>= liftIO . readTVarIO)
     Just i <- asks requestedPiece >>= liftIO . readTVarIO
-    blockCount <- flip pieceBlockCount defaultBlockLength . getPieceLength i <$> asks peTorrentInfo
+    blockSize <- asks _blockSize
+    blockCount <- flip pieceBlockCount blockSize . getPieceLength i <$> asks peTorrentInfo
     "Downloaded: " ++ show downloaded ++ " Piece peBlocks: " ++ show blockCount & logPeer
     return $ downloaded == blockCount
 
@@ -218,8 +220,9 @@ continueDownload = do
               env <- ask
               r <- liftIO $ readTVarIO $ requestedPiece env
               r & maybe (error "No piece selected for download") (\pix -> do
-                    let len = getBlockLength pix bix defaultBlockLength (peTorrentInfo env)
-                        off = bix * defaultBlockLength
+                    blockSize <- asks _blockSize
+                    let len = getBlockLength pix bix blockSize (peTorrentInfo env)
+                    let off = bix * blockSize 
                     yield $ Message.Request pix off len)
 
 -- | Get the length of a group of elements from
@@ -265,7 +268,7 @@ updateRequested = do
             -- Finished downloading all pieces from this peer
             Nothing -> yield Message.NotInterested -- >> throw PeerFinished
             Just p  -> do
-                let c = pieceBlockCount (getPieceLength p (peTorrentInfo env)) defaultBlockLength
+                c <- pieceBlockCount (getPieceLength p (peTorrentInfo env)) <$> asks _blockSize
                 liftIO $ atomically $ do
                     writeTVar (requestedPiece env) nextPiece
                     writeTVar (remainingBlocks env) (Set.fromList [0..(c-1)])
@@ -298,11 +301,8 @@ addPiece :: Int -> PeerM ()
 addPiece ix = asks remotePieces >>= liftIO . atomically . flip modifyTVar' (Set.insert ix)
 
 notifyPiecesMgr :: PiecesMgrMessage -> PeerM ()
-notifyPiecesMgr msg = 
+notifyPiecesMgr msg =
     asks peToPiecesMgr >>= liftIO . atomically . flip writeTChan msg
-
-defaultBlockLength :: Int
-defaultBlockLength = 2 ^ 14  -- FIXME: Remove hardcoded value
 
 -- | Check if handshake is valid
 -- Handshake is valid if info hash and peer id match.

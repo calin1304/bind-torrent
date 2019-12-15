@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TemplateHaskell  #-}
 
 module Session
        ( SessionEnv
@@ -31,16 +32,19 @@ import           Data.Maybe                   (catMaybes, fromMaybe)
 import           Data.Set                     (Set)
 import           Network.Simple.TCP           (HostName, ServiceName, closeSock,
                                                connectSock)
-import           Network.Socket               (PortNumber, SockAddr, Socket)
+import           Network.Socket               (SockAddr, Socket)
 
 import           InternalMessage              (PiecesMgrMessage (..),
                                                SessionMessage (..))
 import           MovingWindow                 (MovingWindow)
+import           Settings                     (Settings, clientSettings,
+                                               listeningPort, blockSize)
 import           TorrentInfo
 import           Types                        (InfoHash, PeerId)
 
 import qualified Data.ByteString.Lazy         as LBS
 import qualified Data.Set                     as Set
+import qualified Data.Yaml                    as YAML
 
 import qualified MovingWindow                 as MW
 import qualified Peer
@@ -55,7 +59,7 @@ type SessionM a = ReaderT SessionEnv IO a
 data SessionEnv = SessionEnv
               { seInfoHash             :: InfoHash
               , seTorrent              :: Torrent
-              , seListenPort           :: PortNumber
+              , _settings              :: Settings
               , seTorrentStatus        :: TVar (Maybe TorrentStatus)
               , seToSession            :: TChan SessionMessage
               , sePeerId               :: PeerId
@@ -63,6 +67,7 @@ data SessionEnv = SessionEnv
               , seDownloadMovingWindow :: TVar MovingWindow
               , seToPiecesMgr          :: TChan PiecesMgrMessage
               }
+makeLenses ''SessionEnv
 
 data SessionCanceled = SessionCanceled deriving (Show)
 
@@ -75,20 +80,20 @@ sessionInfoHash :: SessionEnv -> InfoHash
 sessionInfoHash = seInfoHash
 
 newEnvFromMeta :: LBS.ByteString -> TVar (Maybe TorrentStatus) -> TChan SessionMessage -> IO SessionEnv
-newEnvFromMeta meta ts chan =
-    SessionEnv infoHash torrent listenPort ts chan
+newEnvFromMeta meta ts chan = do
+    s <- YAML.decodeFileThrow "settings.yaml"
+    SessionEnv infoHash torrent s ts chan
         <$> randomPeerId
         <*> newTVarIO Set.empty
         <*> newTVarIO (MW.new 4)
         <*> newTChanIO
     where
         metaDict     = fromMaybe (error "Could not decode meta file") (bRead meta)
-        infoHash     = fromRight (error "Could not decode info hash") 
+        infoHash     = fromRight (error "Could not decode info hash")
             $ bencodeHash <$> runParser (dict "info") metaDict
         bencodeHash  = hashlazy . bPack
         randomPeerId = return "01234567890123456789" :: IO PeerId
                        -- ^ FIXME: Remove hardcoded value
-        listenPort   = 6881
         torrent      = fromRight (error "Error reading torrent") $ readTorrent meta
 
 torrentStatusLoop :: SessionEnv -> IO ()
@@ -138,7 +143,8 @@ start env = void $ async $ runReaderT start' env
                           ourPs = seDownloadedPieces env
                           mw    = seDownloadMovingWindow env
                           toPiecesMgr = seToPiecesMgr env
-                      peerEnv <- liftIO $ Peer.newConfig ih ti pid sock ourPs mw toPiecesMgr
+                          bs = env ^. settings . clientSettings . blockSize
+                      peerEnv <- liftIO $ Peer.newConfig ih ti pid sock ourPs mw toPiecesMgr bs
                       Peer.start peerEnv
 
                   startPiecesMgr :: IO ()
@@ -156,7 +162,7 @@ getPeers = do
     Just announce <- fmap LBS.toStrict <$> asks (tAnnounce . seTorrent)
     ih <- asks seInfoHash
     peerId <- asks sePeerId
-    lp <- asks seListenPort
+    lp <- views (settings . clientSettings . listeningPort) fromIntegral
     response <- liftIO $
         try (Tracker.sendRequest $ Tracker.mkTrackerRequest announce ih peerId lp)
             :: SessionM (Either SomeException (Either String Tracker.TrackerResponse))

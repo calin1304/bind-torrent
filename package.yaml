@@ -32,6 +32,7 @@ dependencies:
 - stm
 - mtl
 - lens
+- yaml
 
 default-extensions:
   - DeriveGeneric
