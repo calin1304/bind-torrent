@@ -30,8 +30,8 @@ import qualified Session
 
 
 data Env = Env
-    { envTorrentStatus :: !(TVar (Maybe TorrentStatus))
-    , toSession        :: !(TChan SessionMessage)
+    { envTorrentStatus :: TVar (Maybe TorrentStatus)
+    , toSession        :: TChan SessionMessage
     }
 
 server :: ReaderT Env IO ()

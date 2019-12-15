@@ -26,9 +26,9 @@ import qualified Data.ByteString.Lazy.Char8   as LC
 type PiecesMgrM a = ReaderT PiecesMgrEnv IO a
 
 data PiecesMgrEnv = PiecesMgrEnv
-    { pmTorrent    :: !Torrent
-    , pmInbox      :: !(TChan PiecesMgrMessage)
-    , pmFileHandle :: !Handle
+    { pmTorrent    :: Torrent
+    , pmInbox      :: TChan PiecesMgrMessage
+    , pmFileHandle :: Handle
     }
 
 listenerLoop :: PiecesMgrM ()

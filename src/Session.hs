@@ -53,15 +53,15 @@ type Peer = (HostName, ServiceName)
 type SessionM a = ReaderT SessionEnv IO a
 
 data SessionEnv = SessionEnv
-              { seInfoHash             :: !InfoHash
-              , seTorrent              :: !Torrent
-              , seListenPort           :: !PortNumber
-              , seTorrentStatus        :: !(TVar (Maybe TorrentStatus))
-              , seToSession            :: !(TChan SessionMessage)
-              , sePeerId               :: !PeerId
-              , seDownloadedPieces     :: !(TVar (Set Int))
-              , seDownloadMovingWindow :: !(TVar MovingWindow)
-              , seToPiecesMgr          :: !(TChan PiecesMgrMessage)
+              { seInfoHash             :: InfoHash
+              , seTorrent              :: Torrent
+              , seListenPort           :: PortNumber
+              , seTorrentStatus        :: TVar (Maybe TorrentStatus)
+              , seToSession            :: TChan SessionMessage
+              , sePeerId               :: PeerId
+              , seDownloadedPieces     :: TVar (Set Int)
+              , seDownloadMovingWindow :: TVar MovingWindow
+              , seToPiecesMgr          :: TChan PiecesMgrMessage
               }
 
 data SessionCanceled = SessionCanceled deriving (Show)

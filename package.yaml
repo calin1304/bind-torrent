@@ -32,6 +32,9 @@ dependencies:
 - stm
 - mtl
 
+default-extension:
+  - StrictData
+
 ghc-options: 
 - -Wall
 - -Wincomplete-uni-patterns

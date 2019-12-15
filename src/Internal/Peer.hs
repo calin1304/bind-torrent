@@ -44,41 +44,41 @@ type BlockSet = Set Int
 
 -- TODO: Add isInterested and amChoking fields
 data PeerState = PeerState
-    { isChoking    :: !Bool
-    , amInterested :: !Bool
+    { isChoking    :: Bool
+    , amInterested :: Bool
     }
 
 type PeerSourceC m = ConduitT () Message m ()
 type PeerSinkC m = ConduitT Message Void m ()
 
 data PeerEnv = PeerEnv
-    { peInfoHash             :: !InfoHash
-    , peTorrentInfo          :: !TorrentInfo
-    , pePeerId               :: !PeerId
-    , peSourceC              :: !(PeerSourceC PeerM)
-    , peSinkC                :: !(PeerSinkC PeerM)
+    { peInfoHash             :: InfoHash
+    , peTorrentInfo          :: TorrentInfo
+    , pePeerId               :: PeerId
+    , peSourceC              :: PeerSourceC PeerM
+    , peSinkC                :: PeerSinkC PeerM
     -- | Pieces we have downloaded so far from all Peers
     -- TODO: This is a global var, refactor somehow ?
-    , peOurPieces            :: !(TVar PieceSet)
-    , peDownloadMovingWindow :: !(TVar MovingWindow)
-    , peToPiecesMgr          :: !(TChan PiecesMgrMessage)
-    , pePeerAlive            :: !(TVar Bool)
+    , peOurPieces            :: TVar PieceSet
+    , peDownloadMovingWindow :: TVar MovingWindow
+    , peToPiecesMgr          :: TChan PiecesMgrMessage
+    , pePeerAlive            :: TVar Bool
     -- | Interest and choking state
-    , pePeerState            :: !(TVar PeerState)
-    , penvPiecesInfo         :: !PiecesInfo
-    , penvBlocksInfo         :: !BlocksInfo
-    , peWaitingHandshake     :: !(TVar Bool)
+    , pePeerState            :: TVar PeerState
+    , penvPiecesInfo         :: PiecesInfo
+    , penvBlocksInfo         :: BlocksInfo
+    , peWaitingHandshake     :: TVar Bool
     }
 
 data PiecesInfo = PiecesInfo
-    { pinfoRequested    :: !(TVar (Maybe Int))  -- Piece that we're currently downloading
-    , pinfoRemotePieces :: !(TVar PieceSet)
+    { pinfoRequested    :: TVar (Maybe Int)  -- Piece that we're currently downloading
+    , pinfoRemotePieces :: TVar PieceSet
     }
 
 data BlocksInfo = BlocksInfo
-    { binfoRequested  :: !(TVar BlockSet)  -- Blocks for which we have Request messages sent
-    , binfoDownloaded :: !(TVar (Map Int BS.ByteString))  -- Data for all the peBlocks downloaded so far
-    , binfoRemaining  :: !(TVar BlockSet)  -- Remaining peBlocks to download to complete the requested piece
+    { binfoRequested  :: TVar BlockSet  -- Blocks for which we have Request messages sent
+    , binfoDownloaded :: TVar (Map Int BS.ByteString)  -- Data for all the peBlocks downloaded so far
+    , binfoRemaining  :: TVar BlockSet  -- Remaining peBlocks to download to complete the requested piece
     }
 
 class HasTorrentInfo a where
