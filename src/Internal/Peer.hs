@@ -20,7 +20,6 @@ import           Debug.Trace
 
 import           Conduit                      (await, yield)
 import           Control.Lens                 (forOf_, _Just)
-import           Control.Monad.Fail           (MonadFail)
 import           Control.Monad.IO.Class       (liftIO)
 import           Control.Monad.STM            (STM, atomically)
 import           Data.Conduit                 (ConduitT, runConduit, (.|))
@@ -89,10 +88,6 @@ data BlocksInfo = BlocksInfo
     , binfoRemaining  :: TVar BlockSet  -- Remaining peBlocks to download to complete the requested piece
     }
 
-class HasTorrentInfo a where
-    torrentInfo :: a -> TorrentInfo
-instance HasTorrentInfo PeerEnv where
-    torrentInfo = peTorrentInfo
 
 class HasPiecesInfo a where
     requestedPiece :: a -> TVar (Maybe Int)
@@ -110,36 +105,6 @@ instance HasBlocksInfo PeerEnv where
     downloadedBlocks = binfoDownloaded . penvBlocksInfo
     remainingBlocks = binfoRemaining . penvBlocksInfo
 
-class HasPeerState a where
-    peerState :: a ->  TVar PeerState
-instance HasPeerState PeerEnv where
-    peerState = pePeerState
-
-class HasLocalPieces a where
-    localPieces :: a -> TVar PieceSet
-instance HasLocalPieces PeerEnv where
-    localPieces = peOurPieces
-
-class HasHandshakeStatus a where
-    waitingHandshake :: a -> TVar Bool
-instance HasHandshakeStatus PeerEnv where
-    waitingHandshake = peWaitingHandshake
-
-class HasInfoHash a where
-    infoHash :: a -> InfoHash
-instance HasInfoHash PeerEnv where
-    infoHash = peInfoHash
-
-class HasPiecesMgrChan a where
-    piecesMgrChan :: a -> TChan PiecesMgrMessage
-instance HasPiecesMgrChan PeerEnv where
-    piecesMgrChan = peToPiecesMgr
-
-class HasDownloadMovingWindow a where
-    downloadMovingWindow :: a -> TVar MovingWindow
-instance HasDownloadMovingWindow PeerEnv where
-    downloadMovingWindow = peDownloadMovingWindow
-
 class (Monad m) => CanMessage m where
     sendMessage :: Message -> m ()
 instance CanMessage PeerM where
@@ -152,45 +117,41 @@ mainLoop = do
     env <- ask
     runConduit $ peSourceC env .| handleMessages .| peSinkC env
 
-handleMessages :: (MonadReader env m, HasDownloadMovingWindow env, HasTorrentInfo env,
-                   HasPiecesInfo env, HasBlocksInfo env, HasPiecesMgrChan env,
-                   HasInfoHash env, HasHandshakeStatus env, HasPeerState env,
-                   HasLocalPieces env, MonadIO m, MonadFail m)
-               => ConduitT Message Message m ()
+handleMessages ::ConduitT Message Message PeerM ()
 handleMessages = do
     env <- ask
-    "Awaiting message" & logPeer
+    lift $ "Awaiting message" & logPeer
     maybeMessage <- await
     forOf_ _Just maybeMessage $ \msg -> do
-        "Handling message" & logPeer
+        lift $ "Handling message" & logPeer
         -- liftIO $ atomically $ writeTVar (peerAlive env) True
         case msg of
             Message.KeepAlive          -> return ()
             Message.Choke              ->
-                liftIO $ atomically $ setIsChoking (peerState env) True >> cancelRequested env
+                liftIO $ atomically $ setIsChoking (pePeerState env) True >> cancelRequested env
             Message.Unchoke            -> do
-                liftIO $ atomically $ setIsChoking (peerState env) False
+                liftIO $ atomically $ setIsChoking (pePeerState env) False
                 updateRequested >> continueDownload
             Message.Interested         -> undefined -- Don't handle
             Message.NotInterested      -> undefined -- Don't handle
-            Message.Have ix            -> addPiece ix >> updateInterest >> updateRequested
-            Message.BitField s         -> forM_ s addPiece >> updateInterest >> updateRequested
+            Message.Have ix            -> lift (addPiece ix) >> updateInterest >> updateRequested
+            Message.BitField s         -> forM_ s (lift . addPiece) >> updateInterest >> updateRequested
             Message.Request{}          -> undefined -- Don't handle
             Message.Piece ix off bs    -> do
                 Just i <- liftIO $ readTVarIO $ requestedPiece env
                 when (ix == i) $ do
                     -- get block index in piece
                     let blockIx = off `div` defaultBlockLength
-                    addDownloadedBlock blockIx bs
-                    done <- completedPiece -- check if we completed the piece
+                    lift $ addDownloadedBlock blockIx bs
+                    done <- lift completedPiece -- check if we completed the piece
                     when done $ do
-                        "Piece completed" & logPeer
+                        lift $ "Piece completed" & logPeer
                         pieceBS <- BS.concat . map snd . Map.toAscList
                                     <$> liftIO (readTVarIO $ downloadedBlocks env)
                         lift $ notifyPiecesMgr (HavePiece ix pieceBS)
                         liftIO $ atomically $ do
                             cancelRequested env
-                            modifyTVar' (localPieces env) (Set.insert i)
+                            modifyTVar' (peOurPieces env) (Set.insert i)
                         yield (Message.Have i)
                         updateRequested
                     continueDownload
@@ -198,10 +159,10 @@ handleMessages = do
             Message.Port{}             -> return ()
             Message.Handshake{}        ->
                 liftIO $ atomically $ do
-                    expected <- readTVar (waitingHandshake env)
+                    expected <- readTVar (peWaitingHandshake env)
                     unless expected (error "Was not expecting handshake now")
-                    writeTVar (waitingHandshake env) False
-                    unless (isValidHandshake (infoHash env) msg) (error "Invalid handshake")
+                    writeTVar (peWaitingHandshake env) False
+                    unless (isValidHandshake (peInfoHash env) msg) (error "Invalid handshake")
         handleMessages
 
 pieceIndex :: (HasPiecesInfo env, MonadIO m) => env -> m Int
@@ -210,28 +171,24 @@ pieceIndex env = liftIO $
 
 -- TODO: Replace Int with BlockIx
 -- TODO: Replace ByteString with BlockData
-addDownloadedBlock :: (MonadReader env m, HasTorrentInfo env, HasPiecesInfo env,
-                       HasBlocksInfo env, HasDownloadMovingWindow env, MonadIO m)
-                   => Int -> BS.ByteString -> m ()
+addDownloadedBlock :: Int -> BS.ByteString -> PeerM ()
 addDownloadedBlock blockIx bs = do
     env <- ask
     pix <- liftIO $ pieceIndex env
-    let blen = getBlockLength pix blockIx defaultBlockLength (torrentInfo env)
+    let blen = getBlockLength pix blockIx defaultBlockLength (peTorrentInfo env)
     liftIO $ do
         time <- getPOSIXTime
-        atomically $ modifyTVar' (downloadMovingWindow env) (`MW.insert` (time, blen))
+        atomically $ modifyTVar' (peDownloadMovingWindow env) (`MW.insert` (time, blen))
         atomically $ do
             modifyTVar' (downloadedBlocks env) (Map.insert blockIx bs)
             modifyTVar' (requestedBlocks env) (Set.delete blockIx)
 
 -- | Function checks if we've completed the piece we're currently requesting
-completedPiece :: (MonadReader env m, MonadFail m, MonadIO m,
-                   HasPiecesInfo env, HasBlocksInfo env, HasTorrentInfo env)
-               => m Bool
+completedPiece :: PeerM Bool
 completedPiece = do
     downloaded <- length . Map.keys <$> (asks downloadedBlocks >>= liftIO . readTVarIO)
     Just i <- asks requestedPiece >>= liftIO . readTVarIO
-    blockCount <- flip pieceBlockCount defaultBlockLength . getPieceLength i <$> asks torrentInfo
+    blockCount <- flip pieceBlockCount defaultBlockLength . getPieceLength i <$> asks peTorrentInfo
     "Downloaded: " ++ show downloaded ++ " Piece peBlocks: " ++ show blockCount & logPeer
     return $ downloaded == blockCount
 
@@ -243,9 +200,7 @@ pieceBlockCount pieceLength blockLength =
 
 
 -- | Send Request messages for the currently donwloading piece.
-continueDownload :: (MonadReader env m, HasTorrentInfo env, HasPiecesInfo env,
-                     HasBlocksInfo env, MonadIO m)
-                 => ConduitT void Message m ()
+continueDownload :: ConduitT void Message PeerM ()
 continueDownload = do
     env <- ask
     requested <- liftIO $ readTVarIO (requestedBlocks env)
@@ -257,15 +212,13 @@ continueDownload = do
             writeTVar (remainingBlocks env) (Set.difference remaining next)
             writeTVar (requestedBlocks env) (Set.union requested next)
         forM_ next requestBlock
-    where requestBlock :: (MonadReader env m, HasTorrentInfo env,
-                           HasPiecesInfo env, MonadIO m)
-                       => Int -> ConduitT a Message m ()
+    where requestBlock :: Int -> ConduitT a Message PeerM ()
           requestBlock bix = do
-              "Requesting block " ++ show bix & logPeer
+              lift $ "Requesting block " ++ show bix & logPeer
               env <- ask
               r <- liftIO $ readTVarIO $ requestedPiece env
               r & maybe (error "No piece selected for download") (\pix -> do
-                    let len = getBlockLength pix bix defaultBlockLength (torrentInfo env)
+                    let len = getBlockLength pix bix defaultBlockLength (peTorrentInfo env)
                         off = bix * defaultBlockLength
                     yield $ Message.Request pix off len)
 
@@ -296,25 +249,23 @@ setIsChoking var b = modifyTVar' var (\s -> s { isChoking = b })
 -- then we should start downloading a new piece.
 -- Pick a random piece which we don't have but the remote peer has.
 -- TODO: Pick piece based on rarity
-updateRequested :: (MonadReader env m, HasPeerState env, HasTorrentInfo env,
-                    HasPiecesInfo env, HasBlocksInfo env, HasLocalPieces env, MonadIO m)
-                => ConduitT a Message m ()
+updateRequested :: ConduitT a Message PeerM ()
 updateRequested = do
-    "Updating requested piece" & logPeer
+    lift $ "Updating requested piece" & logPeer
     env <- ask
-    interested   <- liftIO $ amInterested <$> readTVarIO (peerState env)
-    isNotChoking <- liftIO $ not . isChoking <$> readTVarIO (peerState env)
+    interested   <- liftIO $ amInterested <$> readTVarIO (pePeerState env)
+    isNotChoking <- liftIO $ not . isChoking <$> readTVarIO (pePeerState env)
     noRequest    <- liftIO $ isNothing <$> readTVarIO (requestedPiece env)
     when (interested && isNotChoking && noRequest) $ do
         remotePs <- liftIO $ readTVarIO $ remotePieces env
-        ourPs    <- liftIO $ readTVarIO $ localPieces env
+        ourPs    <- liftIO $ readTVarIO $ peOurPieces env
         let nextPiece = maybeNewPiece $ Set.difference remotePs ourPs
-        "|- next piece is " ++ show nextPiece & logPeer
+        lift $ "|- next piece is " ++ show nextPiece & logPeer
         case nextPiece of
             -- Finished downloading all pieces from this peer
             Nothing -> yield Message.NotInterested -- >> throw PeerFinished
             Just p  -> do
-                let c = pieceBlockCount (getPieceLength p (torrentInfo env)) defaultBlockLength
+                let c = pieceBlockCount (getPieceLength p (peTorrentInfo env)) defaultBlockLength
                 liftIO $ atomically $ do
                     writeTVar (requestedPiece env) nextPiece
                     writeTVar (remainingBlocks env) (Set.fromList [0..(c-1)])
@@ -323,35 +274,32 @@ updateRequested = do
 
 -- | Function checks if peer has any pieces we need, updates our interest
 -- in remote peer and informs remote peer of our interest.
-updateInterest :: (MonadReader env m, HasPeerState env, HasPiecesInfo env,
-                   HasLocalPieces env, MonadIO m)
-               => ConduitT a Message m ()
+updateInterest :: ConduitT a Message PeerM ()
 updateInterest = do
     env <- ask
     (has, inform) <- liftIO $ atomically $ do
-        s        <- readTVar $ peerState env
+        s        <- readTVar $ pePeerState env
         remotePs <- readTVar $ remotePieces env
-        ourPs    <- readTVar $ localPieces env
+        ourPs    <- readTVar $ peOurPieces env
         let has = not $ Set.null $ Set.difference remotePs ourPs
-        writeTVar (peerState env) $ s { amInterested = has }
+        writeTVar (pePeerState env) $ s { amInterested = has }
         return (has, amInterested s /= has)
     when inform $ yield (if has then Message.Interested else Message.NotInterested)
 
 -- | Cancel all requested peBlocks
-cancelRequested :: (HasPiecesInfo env, HasBlocksInfo env) => env -> STM ()
+cancelRequested :: PeerEnv -> STM ()
 cancelRequested env = do
     writeTVar (requestedPiece env) Nothing
     writeTVar (requestedBlocks env) Set.empty
     writeTVar (downloadedBlocks env) Map.empty
 
 -- | Add piece as owned by remote peer
-addPiece :: (MonadReader env m, MonadIO m, HasPiecesInfo env) => Int -> m ()
+addPiece :: Int -> PeerM ()
 addPiece ix = asks remotePieces >>= liftIO . atomically . flip modifyTVar' (Set.insert ix)
 
-notifyPiecesMgr :: (MonadReader env m, HasPiecesMgrChan env, MonadIO m) => PiecesMgrMessage -> m ()
-notifyPiecesMgr msg = do
-    toPiecesMgr <- asks piecesMgrChan
-    liftIO $ atomically $ writeTChan toPiecesMgr msg
+notifyPiecesMgr :: PiecesMgrMessage -> PeerM ()
+notifyPiecesMgr msg = 
+    asks peToPiecesMgr >>= liftIO . atomically . flip writeTChan msg
 
 defaultBlockLength :: Int
 defaultBlockLength = 2 ^ 14  -- FIXME: Remove hardcoded value
@@ -363,7 +311,7 @@ isValidHandshake :: Types.InfoHash -> Message -> Bool
 isValidHandshake ih (Message.Handshake mih _) = mih == ih
 isValidHandshake _ _                          = error "Invalid argument"
 
-logPeer :: (Applicative m) => String -> m ()
+logPeer :: String -> PeerM ()
 logPeer s = traceM $ "Peer: " <> s
 
 todo :: m ()
