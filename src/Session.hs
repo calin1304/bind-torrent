@@ -37,12 +37,13 @@ import           Network.Socket               (SockAddr, Socket)
 import           InternalMessage              (PiecesMgrMessage (..),
                                                SessionMessage (..))
 import           MovingWindow                 (MovingWindow)
-import           Settings                     (Settings, clientSettings,
-                                               listeningPort, blockSize)
+import           Settings                     (Settings, blockSize,
+                                               clientSettings, listeningPort)
 import           TorrentInfo
 import           Types                        (InfoHash, PeerId)
 
 import qualified Data.ByteString.Lazy         as LBS
+import qualified Data.ByteString.Lazy.Char8   as LC
 import qualified Data.Set                     as Set
 import qualified Data.Yaml                    as YAML
 
@@ -79,22 +80,29 @@ sessionTorrent = seTorrent
 sessionInfoHash :: SessionEnv -> InfoHash
 sessionInfoHash = seInfoHash
 
-newEnvFromMeta :: LBS.ByteString -> TVar (Maybe TorrentStatus) -> TChan SessionMessage -> IO SessionEnv
-newEnvFromMeta meta ts chan = do
-    s <- YAML.decodeFileThrow "settings.yaml"
+newEnvFromMeta
+    :: FilePath
+    -> FilePath
+    -> TVar (Maybe TorrentStatus)
+    -> TChan SessionMessage
+    -> IO SessionEnv
+newEnvFromMeta meta settingsFile ts chan = do
+    s <- YAML.decodeFileThrow settingsFile
     SessionEnv infoHash torrent s ts chan
         <$> randomPeerId
         <*> newTVarIO Set.empty
         <*> newTVarIO (MW.new 4)
         <*> newTChanIO
     where
-        metaDict     = fromMaybe (error "Could not decode meta file") (bRead meta)
+        metaDict     = 
+            fromMaybe (error "Could not decode meta file") (bRead (LC.pack meta))
         infoHash     = fromRight (error "Could not decode info hash")
             $ bencodeHash <$> runParser (dict "info") metaDict
         bencodeHash  = hashlazy . bPack
         randomPeerId = return "01234567890123456789" :: IO PeerId
                        -- ^ FIXME: Remove hardcoded value
-        torrent      = fromRight (error "Error reading torrent") $ readTorrent meta
+        torrent      =
+            fromRight (error "Error reading torrent") $ readTorrent (LC.pack meta)
 
 torrentStatusLoop :: SessionEnv -> IO ()
 torrentStatusLoop env = do

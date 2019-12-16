@@ -33,6 +33,7 @@ dependencies:
 - mtl
 - lens
 - yaml
+- optparse-applicative
 
 default-extensions:
   - DeriveGeneric

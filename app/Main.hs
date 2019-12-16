@@ -6,21 +6,22 @@ import           Control.Monad.STM
 import           Data.Time.Clock
 import           Data.Time.Format
 import           Data.Torrent
+import           Options.Applicative
 import           Web.Scotty
 
-import           Control.Concurrent.STM.TVar  (TVar, newTVarIO, readTVarIO)
-import           Control.Monad.IO.Class       (liftIO)
-import           Data.Maybe                   (fromMaybe)
-import           System.Environment           (getArgs)
+import           Control.Concurrent.STM.TVar   (TVar, newTVarIO, readTVarIO)
+import           Control.Monad.IO.Class        (liftIO)
+import           Data.Maybe                    (fromMaybe)
 
-import           InternalMessage              (SessionMessage (..))
-import           Session                      (TorrentStatus (..))
+import           InternalMessage               (SessionMessage (..))
 import           Network.Wai.Middleware.Static (addBase, staticPolicy)
+import           Session                       (TorrentStatus (..))
 import           TorrentInfo
 
-import qualified Data.ByteString.Lazy         as LBS
-import qualified Data.Text                    as T
-import qualified Data.Text.Encoding           as TE
+import qualified Data.ByteString.Lazy          as LBS
+import qualified Data.ByteString.Lazy.Char8    as LC
+import qualified Data.Text                     as T
+import qualified Data.Text.Encoding            as TE
 
 import qualified Session
 
@@ -30,8 +31,13 @@ data Env = Env
     , toSession        :: TChan SessionMessage
     }
 
-server :: ReaderT Env IO ()
-server = do
+data Arguments = Arguments
+    { settingsFile :: FilePath
+    , torrentFile  :: FilePath
+    }
+
+server :: Arguments -> ReaderT Env IO ()
+server args = do
     env <- ask
     ts <- asks envTorrentStatus
     let base = "bind-torrent-web-ui"
@@ -44,8 +50,9 @@ server = do
             json $ fromMaybe (TorrentStatus 0 0) maybeStatus
         post "/loadTorrent" $ do
             -- Start session
-            meta <- body :: ActionM LBS.ByteString
-            config <- liftIO $ Session.newEnvFromMeta meta ts (toSession env)
+            meta <- LC.unpack <$> body :: ActionM String
+            config <- liftIO $
+                Session.newEnvFromMeta meta (settingsFile args) ts (toSession env)
             let torrent = Session.sessionTorrent config
             liftIO $ Session.start config
             -- Send torrent info response
@@ -62,10 +69,26 @@ newEnv = Env <$> newTVarIO Nothing <*> newTChanIO
 
 main :: IO ()
 main = do
-    args <- getArgs
-    case head args of
-        "--web" ->
-            runReaderT server =<< newEnv
-        _ -> do
-            Env ts chan <- newEnv
-            LBS.readFile (head args) >>= \meta -> Session.newEnvFromMeta meta ts chan >>= Session.start
+    let opts = info (argsd <**> helper)
+                ( fullDesc
+               <> progDesc "BitTorrent client"
+               <> Options.Applicative.header "hello, world"
+                )
+    args <- execParser opts
+    Env ts chan <- newEnv
+    Session.newEnvFromMeta (torrentFile args) (settingsFile args) ts chan
+        >>= Session.start
+
+argsd :: Parser Arguments
+argsd = Arguments
+    <$> strOption
+        ( short 'c'
+       <> value "settings.yaml"
+       <> metavar "SETTINGS-FILE"
+       <> help "Settings file to use"
+        )
+    <*> strOption
+        ( short 'f'
+       <> metavar "TORRENT-FILE"
+       <> help "Torrent file to download"
+       )
