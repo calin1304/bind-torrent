@@ -30,6 +30,7 @@ dependencies:
 - containers
 - torrent
 - stm
+- stm-chans
 - mtl
 - lens
 - yaml

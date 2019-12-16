@@ -11,7 +11,7 @@ module Session
        ) where
 
 import           Control.Concurrent.Async
-import           Control.Concurrent.STM.TChan
+import           Control.Concurrent.STM.TBChan
 import           Control.Concurrent.STM.TVar
 import           Control.Exception
 import           Control.Lens
@@ -21,33 +21,32 @@ import           Data.Either
 import           Data.Torrent
 import           Debug.Trace
 
-import           Control.Concurrent           (threadDelay)
-import           Control.Monad                (forM_)
-import           Control.Monad.IO.Class       (liftIO)
-import           Control.Monad.STM            (atomically)
-import           Crypto.Hash.SHA1             (hashlazy)
-import           Data.BEncode.Parser          (dict, runParser)
-import           Data.Function                ((&))
-import           Data.Maybe                   (catMaybes, fromMaybe)
-import           Data.Set                     (Set)
-import           Network.Simple.TCP           (HostName, ServiceName, closeSock,
-                                               connectSock)
-import           Network.Socket               (SockAddr, Socket)
+import           Control.Concurrent            (threadDelay)
+import           Control.Monad                 (forM_)
+import           Control.Monad.IO.Class        (liftIO)
+import           Control.Monad.STM             (atomically)
+import           Crypto.Hash.SHA1              (hashlazy)
+import           Data.BEncode.Parser           (dict, runParser)
+import           Data.Function                 ((&))
+import           Data.Maybe                    (catMaybes, fromMaybe)
+import           Data.Set                      (Set)
+import           Network.Simple.TCP            (HostName, ServiceName,
+                                                closeSock, connectSock)
+import           Network.Socket                (SockAddr, Socket)
 
-import           InternalMessage              (PiecesMgrMessage (..),
-                                               SessionMessage (..))
-import           MovingWindow                 (MovingWindow)
-import           Settings                     (Settings, blockSize,
-                                               clientSettings, listeningPort)
+import           InternalMessage               (PiecesMgrMessage (..),
+                                                SessionMessage (..))
+import           MovingWindow                  (MovingWindow)
+import           Settings
 import           TorrentInfo
-import           Types                        (InfoHash, PeerId)
+import           Types                         (InfoHash, PeerId)
 
-import qualified Data.ByteString.Lazy         as LBS
-import qualified Data.ByteString.Lazy.Char8   as LC
-import qualified Data.Set                     as Set
-import qualified Data.Yaml                    as YAML
+import qualified Data.ByteString.Lazy          as LBS
+import qualified Data.ByteString.Lazy.Char8    as LC
+import qualified Data.Set                      as Set
+import qualified Data.Yaml                     as YAML
 
-import qualified MovingWindow                 as MW
+import qualified MovingWindow                  as MW
 import qualified Peer
 import qualified PiecesMgr
 import qualified Tracker
@@ -62,11 +61,11 @@ data SessionEnv = SessionEnv
               , seTorrent              :: Torrent
               , _settings              :: Settings
               , seTorrentStatus        :: TVar (Maybe TorrentStatus)
-              , seToSession            :: TChan SessionMessage
+              , seToSession            :: TBChan SessionMessage
               , sePeerId               :: PeerId
               , seDownloadedPieces     :: TVar (Set Int)
               , seDownloadMovingWindow :: TVar MovingWindow
-              , seToPiecesMgr          :: TChan PiecesMgrMessage
+              , seToPiecesMgr          :: TBChan PiecesMgrMessage
               }
 makeLenses ''SessionEnv
 
@@ -84,7 +83,7 @@ newEnvFromMeta
     :: FilePath
     -> FilePath
     -> TVar (Maybe TorrentStatus)
-    -> TChan SessionMessage
+    -> TBChan SessionMessage
     -> IO SessionEnv
 newEnvFromMeta meta settingsFile ts chan = do
     s <- YAML.decodeFileThrow settingsFile
@@ -92,9 +91,9 @@ newEnvFromMeta meta settingsFile ts chan = do
         <$> randomPeerId
         <*> newTVarIO Set.empty
         <*> newTVarIO (MW.new 4)
-        <*> newTChanIO
+        <*> newTBChanIO (s ^. clientSettings . chanCapacity)
     where
-        metaDict     = 
+        metaDict     =
             fromMaybe (error "Could not decode meta file") (bRead (LC.pack meta))
         infoHash     = fromRight (error "Could not decode info hash")
             $ bencodeHash <$> runParser (dict "info") metaDict
@@ -121,9 +120,9 @@ torrentStatusLoop env = do
     where
         updateStatus dlSpeed dled _ = Just $ TorrentStatus dled dlSpeed
 
-messageListener :: TChan SessionMessage -> IO ()
+messageListener :: TBChan SessionMessage -> IO ()
 messageListener chan = do
-    atomically $ readTChan chan >>= \case
+    atomically $ readTBChan chan >>= \case
         Cancel -> void $ throw SessionCanceled
     messageListener chan
 

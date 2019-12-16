@@ -8,7 +8,7 @@ module PiecesMgr
        )
        where
 
-import           Control.Concurrent.STM.TChan
+import           Control.Concurrent.STM.TBChan
 import           Control.Monad.Reader
 import           Control.Monad.STM
 import           Data.Torrent
@@ -26,7 +26,7 @@ type PiecesMgrM a = ReaderT PiecesMgrEnv IO a
 
 data PiecesMgrEnv = PiecesMgrEnv
     { pmTorrent    :: Torrent
-    , pmInbox      :: TChan PiecesMgrMessage
+    , pmInbox      :: TBChan PiecesMgrMessage
     , pmFileHandle :: Handle
     }
 
@@ -44,7 +44,7 @@ writePiece ix bs = do
         hSeek handle AbsoluteSeek off
         BS.hPut handle bs
 
-newEnvFromMeta :: Torrent -> TChan PiecesMgrMessage -> IO PiecesMgrEnv
+newEnvFromMeta :: Torrent -> TBChan PiecesMgrMessage -> IO PiecesMgrEnv
 newEnvFromMeta torrent fromPeers = do
     let fname = torrent & LC.unpack . tName . tInfo
     handle <- openFile fname ReadWriteMode
@@ -56,7 +56,7 @@ start :: PiecesMgrEnv -> IO ()
 start = runReaderT listenerLoop
     where 
         listenerLoop = forever $ 
-            asks pmInbox >>= liftIO . atomically . readTChan >>= handleMessage 
+            asks pmInbox >>= liftIO . atomically . readTBChan >>= handleMessage 
 
 cleanup :: PiecesMgrEnv -> IO ()
 cleanup env = do

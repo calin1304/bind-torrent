@@ -12,7 +12,7 @@ module Internal.Peer
     , PeerState (..)
     ) where
 
-import           Control.Concurrent.STM.TChan
+import           Control.Concurrent.STM.TBChan
 import           Control.Concurrent.STM.TVar
 import           Control.Monad.Reader
 import           Data.Torrent
@@ -69,7 +69,7 @@ data PeerEnv = PeerEnv
     -- TODO: This is a global var, refactor somehow ?
     , peOurPieces            :: TVar PieceSet
     , peDownloadMovingWindow :: TVar MovingWindow
-    , peToPiecesMgr          :: TChan PiecesMgrMessage
+    , peToPiecesMgr          :: TBChan PiecesMgrMessage
     , pePeerAlive            :: TVar Bool
     -- | Interest and choking state
     , pePeerState            :: TVar PeerState
@@ -301,7 +301,7 @@ addPiece ix = asks remotePieces >>= liftIO . atomically . flip modifyTVar' (Set.
 
 notifyPiecesMgr :: PiecesMgrMessage -> PeerM ()
 notifyPiecesMgr msg =
-    asks peToPiecesMgr >>= liftIO . atomically . flip writeTChan msg
+    asks peToPiecesMgr >>= liftIO . atomically . flip writeTBChan msg
 
 -- | Check if handshake is valid
 -- Handshake is valid if info hash and peer id match.

@@ -1,6 +1,6 @@
 module Main (main) where
 
-import           Control.Concurrent.STM.TChan
+import           Control.Concurrent.STM.TBChan
 import           Control.Monad.Reader
 import           Control.Monad.STM
 import           Data.Time.Clock
@@ -28,7 +28,7 @@ import qualified Session
 
 data Env = Env
     { envTorrentStatus :: TVar (Maybe TorrentStatus)
-    , toSession        :: TChan SessionMessage
+    , toSession        :: TBChan SessionMessage
     }
 
 data Arguments = Arguments
@@ -62,10 +62,10 @@ server args = do
             dateAdded <- liftIO $ T.pack . formatTime defaultTimeLocale "%d-%m-%Y" <$> getCurrentTime
             json $ TorrentInfo tname thash tsize dateAdded
         post "/cancel" $
-            liftIO $ atomically $ writeTChan (toSession env) Cancel
+            liftIO $ atomically $ writeTBChan (toSession env) Cancel
 
 newEnv :: IO Env
-newEnv = Env <$> newTVarIO Nothing <*> newTChanIO
+newEnv = Env <$> newTVarIO Nothing <*> newTBChanIO 32 -- TODO: Remove hardcoded value
 
 main :: IO ()
 main = do

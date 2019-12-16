@@ -6,6 +6,7 @@ module Settings
     , listeningPort
     , blockSize
     , clientSettings
+    , chanCapacity
     ) where
 
 import           Control.Lens (makeLenses)
@@ -14,8 +15,9 @@ import           GHC.Generics (Generic)
 
 
 data ClientSettings = ClientSettings
-    { _listeningPort :: Int
-    , _blockSize    :: Int
+    { _listeningPort  :: Int
+    , _blockSize      :: Int
+    , _chanCapacity :: Int
     }
     deriving (Generic, ToJSON, FromJSON)
 makeLenses ''ClientSettings

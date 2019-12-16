@@ -4,7 +4,7 @@ module Peer
        )
        where
 
-import           Control.Concurrent.STM.TChan
+import           Control.Concurrent.STM.TBChan
 import           Control.Concurrent.STM.TVar
 import           Control.Monad.Reader
 import           Data.Torrent
@@ -37,7 +37,7 @@ newConfig
     -> Socket 
     -> TVar PieceSet
     -> TVar MovingWindow 
-    -> TChan PiecesMgrMessage
+    -> TBChan PiecesMgrMessage
     -> Int
     -> IO PeerEnv
 newConfig ih tinfo pid sock ourPs mw toPiecesMgr blockSize =
