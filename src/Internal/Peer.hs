@@ -177,12 +177,11 @@ addDownloadedBlock blockIx bs = do
     env <- ask
     pix <- liftIO $ pieceIndex env
     let blen = getBlockLength pix blockIx (_blockSize env) (peTorrentInfo env)
-    liftIO $ do
-        time <- getPOSIXTime
-        atomically $ modifyTVar' (peDownloadMovingWindow env) (`MW.insert` (time, blen))
-        atomically $ do
-            modifyTVar' (downloadedBlocks env) (Map.insert blockIx bs)
-            modifyTVar' (requestedBlocks env) (Set.delete blockIx)
+    time <- liftIO getPOSIXTime
+    liftIO $ atomically $ do
+        modifyTVar' (peDownloadMovingWindow env) (MW.insert (time, blen))
+        modifyTVar' (downloadedBlocks env) (Map.insert blockIx bs)
+        modifyTVar' (requestedBlocks env) (Set.delete blockIx)
 
 -- | Function checks if we've completed the piece we're currently requesting
 completedPiece :: PeerM Bool

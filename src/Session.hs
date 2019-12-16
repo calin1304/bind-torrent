@@ -100,12 +100,14 @@ torrentStatusLoop :: SessionEnv -> IO ()
 torrentStatusLoop env = do
     liftIO $ do
         atomically $ do
-            downloadSpeed' <- fromIntegral . MW.get <$> readTVar (seDownloadMovingWindow env)
-            downloaded <- toRational . Set.size <$> readTVar (seDownloadedPieces env)
+            dlSpeed <- fromIntegral . fromMaybe 0 . MW.get
+                <$> readTVar (seDownloadMovingWindow env)
+            downloaded <- toRational . Set.size
+                <$> readTVar (seDownloadedPieces env)
             let len = tLength $ tInfo $ seTorrent env
             let totalPieces = toRational $ len `div` tPieceLength (tInfo $ seTorrent env)
             modifyTVar' (seTorrentStatus env)
-                (updateStatus downloadSpeed' (min (round (downloaded / totalPieces * 100)) 100))
+                (updateStatus dlSpeed (min (round (downloaded / totalPieces * 100)) 100))
         threadDelay 1000000
     torrentStatusLoop env
     where
