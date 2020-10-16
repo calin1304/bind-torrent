@@ -8,6 +8,8 @@ import           Data.Time.Format
 import           Data.Torrent
 import           Options.Applicative
 import           Web.Scotty
+import Dhall
+import qualified Dhall as Dhall (auto)
 
 import           Control.Concurrent.STM.TVar   (TVar, newTVarIO, readTVarIO)
 import           Control.Monad.IO.Class        (liftIO)
@@ -24,6 +26,21 @@ import qualified Data.Text                     as T
 import qualified Data.Text.Encoding            as TE
 
 import qualified Session
+
+data Config = Config
+    { clientConfig :: ClientConfig
+    }
+    deriving (Generic, Show)
+
+instance Interpret Config
+
+data ClientConfig = ClientConfig
+    { listeningPort :: Natural
+    , blockSize :: Natural
+    }
+    deriving (Generic, Show)
+
+instance Interpret ClientConfig
 
 
 data Env = Env
@@ -69,21 +86,24 @@ newEnv = Env <$> newTVarIO Nothing <*> newTBChanIO 32 -- TODO: Remove hardcoded 
 
 main :: IO ()
 main = do
-    let opts = info (argsd <**> helper)
-                ( fullDesc
-               <> progDesc "BitTorrent client"
-               <> Options.Applicative.header "hello, world"
-                )
-    args <- execParser opts
-    Env ts chan <- newEnv
-    Session.newEnvFromMeta (torrentFile args) (settingsFile args) ts chan
-        >>= Session.start
+    x <- input Dhall.auto "./config.dhall"
+    print (x :: Config)
+
+    -- let opts = info (argsd <**> helper)
+    --             ( fullDesc
+    --            <> progDesc "BitTorrent client"
+    --            <> Options.Applicative.header "hello, world"
+    --             )
+    -- args <- execParser opts
+    -- Env ts chan <- newEnv
+    -- Session.newEnvFromMeta (torrentFile args) (settingsFile args) ts chan
+    --     >>= Session.start
 
 argsd :: Parser Arguments
 argsd = Arguments
     <$> strOption
         ( short 'c'
-       <> value "settings.yaml"
+       <> value "settings.yaml" -- TODO: Change to config.dhall
        <> metavar "SETTINGS-FILE"
        <> help "Settings file to use"
         )

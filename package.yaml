@@ -21,20 +21,21 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 dependencies:
 - base >= 4.7 && < 5
+- aeson
 - binary
 - bytestring
-- ip
-- scotty
-- text
-- aeson
 - containers
-- torrent
+- dhall
+- ip
+- lens
+- mtl
+- optparse-applicative
+- scotty
 - stm
 - stm-chans
-- mtl
-- lens
+- text
+- torrent
 - yaml
-- optparse-applicative
 
 default-extensions:
   - DeriveGeneric
