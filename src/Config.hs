@@ -11,7 +11,7 @@ module Config
 
 import           Control.Lens (makeLenses)
 import           Data.Aeson   (FromJSON, ToJSON)
-import           Dhall        (Interpret, Natural)
+import           Dhall        (FromDhall, Natural)
 import           GHC.Generics (Generic)
 
 
@@ -24,7 +24,7 @@ data ClientConfig = ClientConfig
     deriving (Generic, ToJSON, FromJSON)
 makeLenses ''ClientConfig
 
-instance Interpret ClientConfig
+instance FromDhall ClientConfig
 
 newtype Config = Config
     { _clientConfig :: ClientConfig
@@ -32,4 +32,4 @@ newtype Config = Config
     deriving (Generic, ToJSON, FromJSON)
 makeLenses ''Config
 
-instance Interpret Config
+instance FromDhall Config

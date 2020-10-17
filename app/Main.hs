@@ -11,12 +11,10 @@ import           Options.Applicative
 import           Web.Scotty
 
 import           Control.Concurrent.STM.TVar   (TVar, newTVarIO, readTVarIO)
-import           Control.Monad.IO.Class        (liftIO)
 import           Data.Maybe                    (fromMaybe)
 
 import           InternalMessage               (SessionMessage (..))
 import           Network.Wai.Middleware.Static (addBase, staticPolicy)
-import           Session                       (TorrentStatus (..))
 import           TorrentInfo
 
 import qualified Data.ByteString.Lazy          as LBS

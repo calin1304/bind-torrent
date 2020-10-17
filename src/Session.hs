@@ -22,12 +22,8 @@ import           Data.Torrent
 import           Debug.Trace
 
 import           Control.Concurrent            (threadDelay)
-import           Control.Monad                 (forM_)
-import           Control.Monad.IO.Class        (liftIO)
 import           Control.Monad.STM             (atomically)
 import           Crypto.Hash.SHA1              (hashlazy)
-import           Data.BEncode.Parser           (dict, runParser)
-import           Data.Function                 ((&))
 import           Data.Maybe                    (catMaybes, fromMaybe)
 import           Data.Set                      (Set)
 import           Network.Simple.TCP            (HostName, ServiceName,
