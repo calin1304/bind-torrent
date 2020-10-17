@@ -15,14 +15,14 @@ import           GHC.Generics (Generic)
 
 
 data ClientSettings = ClientSettings
-    { _listeningPort  :: Int
-    , _blockSize      :: Int
-    , _chanCapacity :: Int
+    { _listeningPort :: Int
+    , _blockSize     :: Int
+    , _chanCapacity  :: Int
     }
     deriving (Generic, ToJSON, FromJSON)
 makeLenses ''ClientSettings
 
-data Settings = Settings
+newtype Settings = Settings
     { _clientSettings :: ClientSettings
     }
     deriving (Generic, ToJSON, FromJSON)

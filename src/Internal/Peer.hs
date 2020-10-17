@@ -1,6 +1,5 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TypeSynonymInstances  #-}
 
 module Internal.Peer
     ( PeerEnv (..)
@@ -18,30 +17,29 @@ import           Control.Monad.Reader
 import           Data.Torrent
 import           Debug.Trace
 
-import           Conduit                      (await, yield)
-import           Control.Lens                 (forOf_, _Just)
-import           Control.Monad.IO.Class       (liftIO)
-import           Control.Monad.STM            (STM, atomically)
-import           Data.Conduit                 (ConduitT, runConduit, (.|))
-import           Data.Function                ((&))
-import           Data.Map                     (Map)
-import           Data.Maybe                   (isNothing)
-import           Data.Maybe                   (fromJust)
-import           Data.Set                     (Set)
-import           Data.Time.Clock.POSIX        (getPOSIXTime)
-import           Data.Void                    (Void)
+import           Conduit                       (await, yield)
+import           Control.Lens                  (forOf_, _Just)
+import           Control.Monad.IO.Class        (liftIO)
+import           Control.Monad.STM             (STM, atomically)
+import           Data.Conduit                  (ConduitT, runConduit, (.|))
+import           Data.Function                 ((&))
+import           Data.Map                      (Map)
+import           Data.Maybe                    (fromJust, isNothing)
+import           Data.Set                      (Set)
+import           Data.Time.Clock.POSIX         (getPOSIXTime)
+import           Data.Void                     (Void)
 
-import           InternalMessage              (PiecesMgrMessage (..))
-import           Message                      (Message)
-import           MovingWindow                 (MovingWindow)
-import           Types                        (InfoHash, PeerId)
+import           InternalMessage               (PiecesMgrMessage (..))
+import           Message                       (Message)
+import           MovingWindow                  (MovingWindow)
+import           Types                         (InfoHash, PeerId)
 
-import qualified Data.ByteString              as BS
-import qualified Data.Map                     as Map
-import qualified Data.Set                     as Set
+import qualified Data.ByteString               as BS
+import qualified Data.Map                      as Map
+import qualified Data.Set                      as Set
 
 import qualified Message
-import qualified MovingWindow                 as MW
+import qualified MovingWindow                  as MW
 
 
 type PeerM = ReaderT PeerEnv IO
@@ -142,7 +140,7 @@ handleMessages = do
                 Just i <- liftIO $ readTVarIO $ requestedPiece env
                 when (ix == i) $ do
                     -- get block index in piece
-                    blockIx <- asks $ (off `div`) . _blockSize  
+                    blockIx <- asks $ (off `div`) . _blockSize
                     lift $ addDownloadedBlock blockIx bs
                     done <- lift completedPiece -- check if we completed the piece
                     when done $ do
@@ -221,7 +219,7 @@ continueDownload = do
               r & maybe (error "No piece selected for download") (\pix -> do
                     blockSize <- asks _blockSize
                     let len = getBlockLength pix bix blockSize (peTorrentInfo env)
-                    let off = bix * blockSize 
+                    let off = bix * blockSize
                     yield $ Message.Request pix off len)
 
 -- | Get the length of a group of elements from

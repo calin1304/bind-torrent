@@ -14,8 +14,8 @@ import qualified Data.ByteString         as BS
 import qualified Data.ByteString.Lazy    as LBS
 import qualified Data.Set                as Set
 
-import qualified Peer                    as Peer
-import qualified Tracker                 as Tracker
+import qualified Peer
+import qualified Tracker
 
 
 main :: IO ()

@@ -15,12 +15,12 @@ import           Data.Torrent
 import           Debug.Trace
 import           System.IO
 
-import           Data.Function                ((&))
+import           Data.Function                 ((&))
 
 import           InternalMessage
 
-import qualified Data.ByteString              as BS
-import qualified Data.ByteString.Lazy.Char8   as LC
+import qualified Data.ByteString               as BS
+import qualified Data.ByteString.Lazy.Char8    as LC
 
 type PiecesMgrM a = ReaderT PiecesMgrEnv IO a
 
@@ -32,7 +32,7 @@ data PiecesMgrEnv = PiecesMgrEnv
 
 handleMessage :: PiecesMgrMessage -> PiecesMgrM ()
 handleMessage = \case
-    HavePiece ix bs -> writePiece ix bs        
+    HavePiece ix bs -> writePiece ix bs
 
 writePiece :: Int -> BS.ByteString -> PiecesMgrM ()
 writePiece ix bs = do
@@ -54,9 +54,9 @@ newEnvFromMeta torrent fromPeers = do
 
 start :: PiecesMgrEnv -> IO ()
 start = runReaderT listenerLoop
-    where 
-        listenerLoop = forever $ 
-            asks pmInbox >>= liftIO . atomically . readTBChan >>= handleMessage 
+    where
+        listenerLoop = forever $
+            asks pmInbox >>= liftIO . atomically . readTBChan >>= handleMessage
 
 cleanup :: PiecesMgrEnv -> IO ()
 cleanup env = do

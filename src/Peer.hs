@@ -9,34 +9,34 @@ import           Control.Concurrent.STM.TVar
 import           Control.Monad.Reader
 import           Data.Torrent
 
-import           Conduit                      (mapC)
-import           Control.Concurrent.Async     (async, waitAnyCatchCancel)
-import           Control.Monad.IO.Class       (liftIO)
-import           Data.Binary                  (encode)
-import           Data.Conduit                 ((.|))
-import           Data.Conduit.Attoparsec      (conduitParser)
-import           Data.Conduit.Network         (sinkSocket, sourceSocket)
-import           Network.Socket               (Socket)
+import           Conduit                       (mapC)
+import           Control.Concurrent.Async      (async, waitAnyCatchCancel)
+import           Control.Monad.IO.Class        (liftIO)
+import           Data.Binary                   (encode)
+import           Data.Conduit                  ((.|))
+import           Data.Conduit.Attoparsec       (conduitParser)
+import           Data.Conduit.Network          (sinkSocket, sourceSocket)
+import           Network.Socket                (Socket)
 
 import           Internal.Peer
 
-import           InternalMessage              (PiecesMgrMessage (..))
-import           MovingWindow                 (MovingWindow)
-import           Types                        (InfoHash, PeerId)
+import           InternalMessage               (PiecesMgrMessage (..))
+import           MovingWindow                  (MovingWindow)
+import           Types                         (InfoHash, PeerId)
 
-import qualified Data.ByteString.Lazy         as LBS
-import qualified Data.Map.Strict              as Map
-import qualified Data.Set                     as Set
+import qualified Data.ByteString.Lazy          as LBS
+import qualified Data.Map.Strict               as Map
+import qualified Data.Set                      as Set
 
 import qualified Message
 
-newConfig 
-    :: InfoHash 
-    -> TorrentInfo 
-    -> PeerId 
-    -> Socket 
+newConfig
+    :: InfoHash
+    -> TorrentInfo
+    -> PeerId
+    -> Socket
     -> TVar PieceSet
-    -> TVar MovingWindow 
+    -> TVar MovingWindow
     -> TBChan PiecesMgrMessage
     -> Int
     -> IO PeerEnv

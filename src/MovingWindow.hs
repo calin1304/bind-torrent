@@ -31,7 +31,7 @@ get w =
     case w ^. values of
         []  -> Nothing
         [x] -> x ^? _2
-        _   -> (round . (total /)) <$> diff
+        _   -> round . (total /) <$> diff
                 where tinit = w ^? values . _last . _1
                       tfin  = w ^? values . _head . _1
                       diff  = (-) <$> tfin <*> tinit <&> toRational

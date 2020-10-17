@@ -1,4 +1,4 @@
-module Internal.Message 
+module Internal.Message
     ( bitfieldToSet
     ) where
 

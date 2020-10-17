@@ -20,7 +20,7 @@ instance ToJSON TorrentInfo where
 data TorrentStatus = TorrentStatus
     { tsDownloaded    :: Word
     , tsDownloadSpeed :: Word
-    } 
+    }
     deriving stock (Generic, Show)
     deriving anyclass (ToJSON, FromJSON)
 

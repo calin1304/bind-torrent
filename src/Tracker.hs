@@ -14,8 +14,7 @@ import           Data.Binary.Get
 import           Network.HTTP.Simple
 
 import           Control.Lens          (swapped, (.~), _Left)
-import           Control.Monad         (replicateM)
-import           Control.Monad         (join)
+import           Control.Monad         (join, replicateM)
 import           Data.BEncode          (BEncode (..), bRead)
 import           Data.BEncode.Parser
 import           Data.Function         ((&))
@@ -59,7 +58,7 @@ sendRequest r = do
     where
         query :: [(BS.ByteString, Maybe BS.ByteString)]
         query = let itobs = C.pack . show
-                in map (\(x, y) -> (x, Just y))
+                in map (fmap Just)
                        [ ("info_hash",          trInfoHash r)
                        , ("peer_id",            trPeerId r)
                        , ("port",       itobs $ fromIntegral (trListenPort r))
@@ -70,7 +69,7 @@ sendRequest r = do
                        ]
 
 parseTrackerResponse :: LBS.ByteString -> Either String TrackerResponse
-parseTrackerResponse bs = join $ 
+parseTrackerResponse bs = join $
     failureReason & (swapped . _Left) .~ (TrackerResponse <$> waitInterval <*> peerList)
     where
         bdict = fromJust $ bRead bs

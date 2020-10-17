@@ -25,7 +25,6 @@ import qualified Data.Text.Encoding            as TE
 
 import qualified Session
 
-
 data Env = Env
     { envTorrentStatus :: TVar (Maybe TorrentStatus)
     , toSession        :: TBChan SessionMessage
