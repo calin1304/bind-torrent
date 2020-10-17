@@ -26,7 +26,7 @@ hoogle:
 	$(STACK) hoogle server -- --local --port 8000
 
 lint:
-	hlint .
+	hlint -r -q .
 
 format:
 	find app src -name "*.hs" | xargs stylish-haskell -i

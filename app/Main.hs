@@ -6,6 +6,7 @@ import           Control.Monad.STM
 import           Data.Time.Clock
 import           Data.Time.Format
 import           Data.Torrent
+import qualified Dhall                         (auto, inputFile)
 import           Options.Applicative
 import           Web.Scotty
 
@@ -25,13 +26,14 @@ import qualified Data.Text.Encoding            as TE
 
 import qualified Session
 
+
 data Env = Env
     { envTorrentStatus :: TVar (Maybe TorrentStatus)
     , toSession        :: TBChan SessionMessage
     }
 
 data Arguments = Arguments
-    { settingsFile :: FilePath
+    { configFile :: FilePath
     , torrentFile  :: FilePath
     }
 
@@ -50,8 +52,10 @@ server args = do
         post "/loadTorrent" $ do
             -- Start session
             meta <- LC.unpack <$> body :: ActionM String
-            config <- liftIO $
-                Session.newEnvFromMeta meta (settingsFile args) ts (toSession env)
+            -- TODO: Remove undefined usage
+            config <- undefined
+            -- config <- liftIO $
+            --     Session.newEnvFromMeta meta (config args) ts (toSession env)
             let torrent = Session.sessionTorrent config
             liftIO $ Session.start config
             -- Send torrent info response
@@ -75,14 +79,15 @@ main = do
                 )
     args <- execParser opts
     Env ts chan <- newEnv
-    Session.newEnvFromMeta (torrentFile args) (settingsFile args) ts chan
+    config <- Dhall.inputFile Dhall.auto (configFile args)
+    Session.newEnvFromMeta (torrentFile args) config ts chan
         >>= Session.start
 
 argsd :: Parser Arguments
 argsd = Arguments
     <$> strOption
         ( short 'c'
-       <> value "settings.yaml"
+       <> value "config.dhall"
        <> metavar "SETTINGS-FILE"
        <> help "Settings file to use"
         )

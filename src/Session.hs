@@ -34,17 +34,16 @@ import           Network.Simple.TCP            (HostName, ServiceName,
                                                 closeSock, connectSock)
 import           Network.Socket                (SockAddr, Socket)
 
+import           Config
 import           InternalMessage               (PiecesMgrMessage (..),
                                                 SessionMessage (..))
 import           MovingWindow                  (MovingWindow)
-import           Settings
 import           TorrentInfo
 import           Types                         (InfoHash, PeerId)
 
 import qualified Data.ByteString.Lazy          as LBS
 import qualified Data.ByteString.Lazy.Char8    as LC
 import qualified Data.Set                      as Set
-import qualified Data.Yaml                     as YAML
 
 import qualified MovingWindow                  as MW
 import qualified Peer
@@ -59,7 +58,7 @@ type SessionM a = ReaderT SessionEnv IO a
 data SessionEnv = SessionEnv
               { seInfoHash             :: InfoHash
               , seTorrent              :: Torrent
-              , _settings              :: Settings
+              , _settings              :: Config
               , seTorrentStatus        :: TVar (Maybe TorrentStatus)
               , seToSession            :: TBChan SessionMessage
               , sePeerId               :: PeerId
@@ -81,17 +80,16 @@ sessionInfoHash = seInfoHash
 
 newEnvFromMeta
     :: FilePath
-    -> FilePath
+    -> Config
     -> TVar (Maybe TorrentStatus)
     -> TBChan SessionMessage
     -> IO SessionEnv
-newEnvFromMeta meta settingsFile ts chan = do
-    s <- YAML.decodeFileThrow settingsFile
-    SessionEnv infoHash torrent s ts chan
+newEnvFromMeta meta config ts chan =
+    SessionEnv infoHash torrent config ts chan
         <$> randomPeerId
         <*> newTVarIO Set.empty
         <*> newTVarIO (MW.new 4)
-        <*> newTBChanIO (s ^. clientSettings . chanCapacity)
+        <*> newTBChanIO (config ^. clientConfig . chanCapacity . to fromIntegral)
     where
         metaDict     =
             fromMaybe (error "Could not decode meta file") (bRead (LC.pack meta))
@@ -152,8 +150,8 @@ start env = void $ async $ runReaderT start' env
                           ourPs = seDownloadedPieces env
                           mw    = seDownloadMovingWindow env
                           toPiecesMgr = seToPiecesMgr env
-                          bs = env ^. settings . clientSettings . blockSize
-                      peerEnv <- liftIO $ Peer.newConfig ih ti pid sock ourPs mw toPiecesMgr bs
+                          bs = env ^. settings . clientConfig . blockSize
+                      peerEnv <- liftIO $ Peer.newConfig ih ti pid sock ourPs mw toPiecesMgr (fromIntegral bs)
                       Peer.start peerEnv
 
                   startPiecesMgr :: IO ()
@@ -171,7 +169,7 @@ getPeers = do
     Just announce <- fmap LBS.toStrict <$> asks (tAnnounce . seTorrent)
     ih <- asks seInfoHash
     peerId <- asks sePeerId
-    lp <- views (settings . clientSettings . listeningPort) fromIntegral
+    lp <- views (settings . clientConfig . listeningPort) fromIntegral
     response <- liftIO $
         try (Tracker.sendRequest $ Tracker.mkTrackerRequest announce ih peerId lp)
             :: SessionM (Either SomeException (Either String Tracker.TrackerResponse))

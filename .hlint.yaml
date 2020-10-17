@@ -24,6 +24,8 @@
 - modules:
   - {name: [Data.ByteString], as: BS}
   - {name: [Data.ByteString.Lazy], as: LBS}
+  - {name: [Data.ByteString.Lazy.Char8], as: LC}
+  - {name: [Data.Set], as: Set}
   - {name: [Data.Text], as: T}
     # - {name: Debug.Trace, within: []}
 

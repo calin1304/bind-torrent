@@ -1,5 +1,5 @@
 #!/usr/bin/env zsh
 
-if [[ $(git diff --name-only | grep "\.hs$") ]]; then
+if [[ $(git diff --cached --name-only | grep "\.hs$") ]]; then
     nix-shell --run "hlint ."
 fi
